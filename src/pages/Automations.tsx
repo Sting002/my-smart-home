@@ -219,3 +219,5 @@ export const Automations: React.FC = () => {
     </div>
   );
 };
+
+export default Automations;

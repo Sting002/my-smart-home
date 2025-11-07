@@ -1,19 +1,55 @@
-import React, { useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useEnergy } from "../contexts/EnergyContext";
+import { useAuth } from "@/contexts/AuthContext";
+
+type ExportShape = {
+  homeId: string;
+  currency: string;
+  tariff: number;
+  devices: unknown;
+  exportDate: string;
+};
 
 export const Settings: React.FC = () => {
   const { homeId, setHomeId, currency, setCurrency, tariff, setTariff, devices } = useEnergy();
-  const [brokerUrl, setBrokerUrl] = useState(localStorage.getItem("brokerUrl") || "ws://localhost:9001");
+
+  // ✅ In use below (MQTT section + Save button)
+  const [brokerUrl, setBrokerUrl] = useState(
+    localStorage.getItem("brokerUrl") || "ws://localhost:9001/mqtt"
+  );
+
+  // ✅ In use below (top success banner + import success)
   const [showSuccess, setShowSuccess] = useState(false);
 
-  const handleSave = () => {
+  // ✅ In use below (import error message)
+  const [importErr, setImportErr] = useState<string | null>(null);
+
+  // ✅ In use below (Import button)
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await logout();
+      navigate("/login", { replace: true });
+    } catch (err) {
+      console.error("Logout failed:", err);
+    }
+  }, [logout, navigate]);
+
+  // ✅ Uses brokerUrl state; shows success banner
+  const handleSave = useCallback(() => {
     localStorage.setItem("brokerUrl", brokerUrl);
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 3000);
-  };
+  }, [brokerUrl]);
 
-  const handleExportData = () => {
-    const data = {
+  // ✅ Used by “Export Data (JSON)”
+  const handleExportData = useCallback(() => {
+    const data: ExportShape = {
       homeId,
       currency,
       tariff,
@@ -26,7 +62,41 @@ export const Settings: React.FC = () => {
     a.href = url;
     a.download = `energy-data-${Date.now()}.json`;
     a.click();
-  };
+  }, [homeId, currency, tariff, devices]);
+
+  // ✅ Used by “Import Data (JSON)”
+  const onChooseFile = useCallback(() => fileRef.current?.click(), []);
+  const onFileSelected = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      setImportErr(null);
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        if (typeof parsed.homeId === "string") setHomeId(parsed.homeId);
+        if (typeof parsed.currency === "string") setCurrency(parsed.currency);
+        if (typeof parsed.tariff === "number") setTariff(parsed.tariff);
+        if (parsed.devices) localStorage.setItem("devices", JSON.stringify(parsed.devices));
+        setShowSuccess(true);
+        setTimeout(() => setShowSuccess(false), 3000);
+      } catch {
+        setImportErr("Invalid file format");
+      } finally {
+        // allow selecting the same file again later
+        e.target.value = "";
+      }
+    },
+    [setHomeId, setCurrency, setTariff]
+  );
+
+  // ✅ Used by “Clear All Data”
+  const onResetAll = useCallback(() => {
+    const confirmTxt = prompt('Type "RESET" to clear all local data (devices, settings).');
+    if (confirmTxt !== "RESET") return;
+    localStorage.clear();
+    window.location.reload();
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -36,14 +106,17 @@ export const Settings: React.FC = () => {
         </div>
       )}
 
+      {/* Home Profile */}
       <div className="bg-gray-800 rounded-xl p-6">
         <h2 className="text-white font-semibold mb-4">Home Profile</h2>
         <div className="space-y-4">
           <div>
-            <label htmlFor="home-id" className="text-gray-400 text-sm">Home ID</label>
+            <label htmlFor="homeId" className="text-gray-400 text-sm">
+              Home ID
+            </label>
             <input
-              id="home-id"
-              name="home-id"
+              id="homeId"
+              name="homeId"
               type="text"
               value={homeId}
               onChange={(e) => setHomeId(e.target.value)}
@@ -51,7 +124,9 @@ export const Settings: React.FC = () => {
             />
           </div>
           <div>
-            <label htmlFor="currency" className="text-gray-400 text-sm">Currency</label>
+            <label htmlFor="currency" className="text-gray-400 text-sm">
+              Currency
+            </label>
             <select
               id="currency"
               name="currency"
@@ -63,10 +138,14 @@ export const Settings: React.FC = () => {
               <option value="EUR">EUR (€)</option>
               <option value="GBP">GBP (£)</option>
               <option value="KES">KES (KSh)</option>
+              <option value="ZWL">ZWL (Z$)</option>
+              <option value="ZAR">ZAR (R)</option>
             </select>
           </div>
           <div>
-            <label htmlFor="tariff" className="text-gray-400 text-sm">Tariff (per kWh)</label>
+            <label htmlFor="tariff" className="text-gray-400 text-sm">
+              Tariff (per kWh)
+            </label>
             <input
               id="tariff"
               name="tariff"
@@ -80,29 +159,36 @@ export const Settings: React.FC = () => {
         </div>
       </div>
 
+      {/* MQTT Connection */}
       <div className="bg-gray-800 rounded-xl p-6">
         <h2 className="text-white font-semibold mb-4">MQTT Connection</h2>
         <div className="space-y-4">
           <div>
-            <label htmlFor="broker-url" className="text-gray-400 text-sm">Broker URL</label>
+            <label htmlFor="brokerUrl" className="text-gray-400 text-sm">
+              Broker URL
+            </label>
             <input
-              id="broker-url"
-              name="broker-url"
+              id="brokerUrl"
+              name="brokerUrl"
               type="text"
               value={brokerUrl}
               onChange={(e) => setBrokerUrl(e.target.value)}
-              placeholder="ws://localhost:9001"
+              placeholder="ws://localhost:9001/mqtt"
               className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
             />
             <p className="text-xs text-gray-500 mt-1">
-              Example: ws://192.168.1.100:9001 or wss://broker.example.com:8083
+              Example: <code>ws://192.168.1.100:9001/mqtt</code> or{" "}
+              <code>wss://broker.example.com:8083/mqtt</code>
             </p>
           </div>
         </div>
       </div>
 
+      {/* Data & Privacy */}
       <div className="bg-gray-800 rounded-xl p-6">
         <h2 className="text-white font-semibold mb-4">Data & Privacy</h2>
+        {importErr && <div className="text-red-400 text-sm mb-2">{importErr}</div>}
+
         <div className="space-y-3">
           <button
             onClick={handleExportData}
@@ -110,17 +196,43 @@ export const Settings: React.FC = () => {
           >
             Export Data (JSON)
           </button>
-          <button className="w-full bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-semibold">
+
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json"
+            onChange={onFileSelected}
+            className="hidden"
+          />
+          <button
+            onClick={onChooseFile}
+            className="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg font-semibold"
+          >
+            Import Data (JSON)
+          </button>
+
+          <button
+            onClick={onResetAll}
+            className="w-full bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-semibold"
+          >
             Clear All Data
           </button>
         </div>
       </div>
 
+      {/* Save & Logout */}
       <button
         onClick={handleSave}
         className="w-full bg-green-500 hover:bg-green-600 text-white py-3 rounded-lg font-semibold"
       >
         Save Settings
+      </button>
+
+      <button
+        onClick={handleLogout}
+        className="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg font-semibold mt-2"
+      >
+        Logout
       </button>
 
       <div className="bg-gray-800 rounded-xl p-6 text-center">

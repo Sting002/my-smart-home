@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+// C:\Users\hasti\Desktop\my smart home\src\pages\Dashboard.tsx
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useEnergy } from "../contexts/EnergyContext";
 import { PowerGauge } from "../components/PowerGauge";
 import { AlertBadge } from "../components/AlertBadge";
@@ -16,21 +17,22 @@ export const Dashboard: React.FC = () => {
     setTodayKwh(kwh);
   }, [devices]);
 
-  const estimatedCost = (todayKwh * tariff).toFixed(2);
+  const estimatedCost = useMemo(() => (todayKwh * tariff).toFixed(2), [todayKwh, tariff]);
 
-  const topConsumers = [...devices]
-    .sort((a, b) => b.kwhToday - a.kwhToday)
-    .slice(0, 5);
+  const topConsumers = useMemo(
+    () => [...devices].sort((a, b) => b.kwhToday - a.kwhToday).slice(0, 5),
+    [devices]
+  );
 
-  const handleQuickAction = (action: string) => {
-    if (action === "allOff") {
-      devices.forEach((d) => {
-        if (d.isOn) {
-          mqttService.publish(`home/${homeId}/cmd/${d.id}/set`, { on: false });
-        }
-      });
-    }
-  };
+  const allOff = useCallback(() => {
+    devices.forEach((d) => {
+      if (d.isOn) {
+        mqttService.publish(`home/${homeId}/cmd/${d.id}/set`, { on: false });
+      }
+    });
+  }, [devices, homeId]);
+
+  const anyDevice = devices.length > 0;
 
   return (
     <div className="space-y-6">
@@ -38,9 +40,7 @@ export const Dashboard: React.FC = () => {
         <PowerGauge watts={totalWatts} />
         <div className="grid grid-cols-2 gap-4 mt-6">
           <div className="text-center">
-            <div className="text-3xl font-bold text-white">
-              {todayKwh.toFixed(2)}
-            </div>
+            <div className="text-3xl font-bold text-white">{todayKwh.toFixed(2)}</div>
             <div className="text-sm text-gray-400">kWh Today</div>
           </div>
           <div className="text-center">
@@ -54,21 +54,23 @@ export const Dashboard: React.FC = () => {
 
       <div className="bg-gray-800 rounded-xl p-4">
         <h2 className="text-white font-semibold mb-3">Top Consumers</h2>
-        <div className="space-y-2">
-          {topConsumers.map((device) => (
-            <div key={device.id} className="flex justify-between items-center">
-              <span className="text-gray-300">{device.name}</span>
-              <span className="text-white font-semibold">
-                {device.kwhToday.toFixed(2)} kWh
-              </span>
-            </div>
-          ))}
-        </div>
+        {anyDevice ? (
+          <div className="space-y-2">
+            {topConsumers.map((device) => (
+              <div key={device.id} className="flex justify-between items-center">
+                <span className="text-gray-300">{device.name}</span>
+                <span className="text-white font-semibold">{device.kwhToday.toFixed(2)} kWh</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-gray-400 text-sm">No devices connected yet.</div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <button
-          onClick={() => handleQuickAction("allOff")}
+          onClick={allOff}
           className="bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-semibold"
         >
           All Off
@@ -81,8 +83,8 @@ export const Dashboard: React.FC = () => {
       {alerts.length > 0 && (
         <div className="space-y-2">
           <h2 className="text-white font-semibold">Recent Alerts</h2>
-          {alerts.slice(0, 3).map((alert, i) => (
-            <AlertBadge key={i} alert={alert} />
+          {alerts.slice(0, 3).map((alert) => (
+            <AlertBadge key={alert.id} alert={alert} />
           ))}
         </div>
       )}
