@@ -1,42 +1,69 @@
+/* eslint-disable react-refresh/only-export-components */
 "use client";
 
-import React, { useEffect, useState } from "react";
-import type { ThemeProviderProps } from "next-themes/dist/types";
-import { ThemeContext, Theme, ThemeContextType } from "../contexts/ThemeContext";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  PropsWithChildren,
+} from "react";
 
-export const ThemeProvider: React.FC<ThemeProviderProps> = ({
+type Theme = "dark" | "light" | "system";
+
+type ThemeContextType = {
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+};
+
+export const ThemeContext = createContext<ThemeContextType | null>(null);
+
+function getInitialTheme(defaultTheme: Theme): Theme {
+  if (typeof window === "undefined") return defaultTheme;
+  const saved = localStorage.getItem("theme");
+  if (saved === "dark" || saved === "light" || saved === "system") return saved;
+  return defaultTheme;
+}
+
+const applyThemeToDocument = (theme: Theme) => {
+  const root = window.document.documentElement;
+  root.classList.remove("light", "dark");
+
+  if (theme === "system") {
+    const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    root.classList.add(isDark ? "dark" : "light");
+  } else {
+    root.classList.add(theme);
+  }
+};
+
+const ThemeProviderInner: React.FC<PropsWithChildren<{ defaultTheme?: Theme }>> = ({
   children,
   defaultTheme = "system",
 }) => {
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("theme");
-      if (saved === "dark" || saved === "light" || saved === "system") {
-        return saved as Theme;          // ✅ Cast ensures correct literal type
-      }
-    }
-    return defaultTheme as Theme;
-  });
+  const [theme, setThemeState] = useState<Theme>(() => getInitialTheme(defaultTheme));
 
   useEffect(() => {
-    const root = document.documentElement;
-    root.classList.remove("light", "dark");
-
-    if (theme === "system") {
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      root.classList.add(prefersDark ? "dark" : "light");
-    } else {
-      root.classList.add(theme);
-    }
+    applyThemeToDocument(theme);
   }, [theme]);
 
-  const value: ThemeContextType = {
-    theme,
-    setTheme: (t) => {
-      localStorage.setItem("theme", t);
-      setTheme(t);
-    },
+  const setTheme = (t: Theme) => {
+    localStorage.setItem("theme", t);
+    setThemeState(t);
   };
 
+  const value = useMemo<ThemeContextType>(() => ({ theme, setTheme }), [theme]);
+
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+};
+
+// ✅ Export both a named and a default export so either import style works
+export const ThemeProvider = ThemeProviderInner;
+export default ThemeProvider;
+
+export const useTheme = (): ThemeContextType => {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error("useTheme must be used within ThemeProvider");
+  return ctx;
 };
