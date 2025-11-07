@@ -1,18 +1,15 @@
-// src/routes/PublicRoute.tsx
 import React from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 
 const PublicRoute: React.FC = () => {
-  const { user, loading } = useAuth();
-  const location = useLocation();
+  const { user, ready } = useAuth();
+  const loc = useLocation();
 
-  if (loading) {
-    return null; // or spinner
-  }
+  if (!ready) return <div className="text-gray-200 p-4">Loading…</div>;
   if (user) {
-    const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname || "/";
-    return <Navigate to={from} replace />;
+    const to = (loc.state as { from?: string } | null)?.from || "/dashboard";
+    return <Navigate to={to} replace />;
   }
   return <Outlet />;
 };

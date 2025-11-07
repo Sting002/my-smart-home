@@ -1,104 +1,78 @@
 import React, { useState } from "react";
-import { apiPost, APIError } from "@/api/client";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 
-type LoginResponse = { id: string; username: string };
-
-// Type guard to read error payload safely without `any`
-function hasErrorField(x: unknown): x is { error?: unknown; message?: unknown } {
-  return typeof x === "object" && x !== null;
-}
+type LocationState = { from?: string };
 
 const Login: React.FC = () => {
-  const nav = useNavigate();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [username, setUsername] = useState<string>("");
+  const [password, setPassword] = useState<string>("");
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
+  const { login } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const redirectTo = ((location.state as LocationState) || {}).from || "/";
+
+  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
-    setBusy(true);
+    setSubmitting(true);
     try {
-      await apiPost<LoginResponse, { username: string; password: string }>(
-        "/auth/login",
-        { username, password }
-      );
-
-      // Optional: mark first-run onboarding complete
-      localStorage.setItem("onboarded", "true");
-
-      nav("/"); // dashboard
-    } catch (err: unknown) {
-      if (err instanceof APIError) {
-        let msg = err.message;
-        if (hasErrorField(err.payload)) {
-          const p = err.payload as { error?: unknown; message?: unknown };
-          if (typeof p.error === "string") msg = p.error;
-          else if (typeof p.message === "string") msg = p.message;
-        }
-        setError(msg);
-      } else {
-        setError("Login failed. Please try again.");
-      }
+      await login(username.trim(), password);
+      navigate(redirectTo, { replace: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Login failed";
+      setError(msg);
     } finally {
-      setBusy(false);
+      setSubmitting(false);
     }
-  }
+  };
 
   return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm bg-gray-800 p-6 rounded-xl space-y-4 border border-gray-700"
-      >
-        <h1 className="text-white text-2xl font-bold text-center">Sign in</h1>
-
-        {error && (
-          <div className="bg-red-500/20 text-red-300 border border-red-500 rounded p-2 text-sm">
-            {error}
+    <div className="min-h-screen flex items-center justify-center bg-gray-900">
+      <div className="w-full max-w-sm bg-gray-800 p-6 rounded-xl border border-gray-700">
+        <h1 className="text-white text-xl font-semibold mb-4">Sign in</h1>
+        <form onSubmit={onSubmit} className="space-y-4" noValidate>
+          <div>
+            <label htmlFor="username" className="text-gray-400 text-sm">Username</label>
+            <input
+              id="username"
+              name="username"
+              autoComplete="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg mt-1"
+              required
+            />
           </div>
-        )}
 
-        <div>
-          <label htmlFor="username" className="text-gray-300 text-sm">
-            Username
-          </label>
-          <input
-            id="username"
-            name="username"
-            autoComplete="username"
-            className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-          />
-        </div>
+          <div>
+            <label htmlFor="password" className="text-gray-400 text-sm">Password</label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg mt-1"
+              required
+            />
+          </div>
 
-        <div>
-          <label htmlFor="password" className="text-gray-300 text-sm">
-            Password
-          </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </div>
+          {error && <p className="text-red-400 text-sm">{error}</p>}
 
-        <button
-          disabled={busy}
-          className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-600 text-white py-2 rounded font-semibold"
-        >
-          {busy ? "Signing in..." : "Sign in"}
-        </button>
-      </form>
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-600 text-white py-3 rounded-lg font-semibold"
+          >
+            {submitting ? "Signing in…" : "Sign in"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 };

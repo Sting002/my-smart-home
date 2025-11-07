@@ -149,3 +149,5 @@ export const DeviceDetail: React.FC = () => {
     </div>
   );
 };
+
+export default DeviceDetail;

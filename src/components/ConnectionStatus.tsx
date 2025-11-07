@@ -22,3 +22,5 @@ export const ConnectionStatus: React.FC = () => {
 
   return null;
 };
+
+export default ConnectionStatus;

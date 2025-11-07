@@ -73,3 +73,5 @@ export const Devices: React.FC = () => {
     </div>
   );
 };
+
+export default Devices;

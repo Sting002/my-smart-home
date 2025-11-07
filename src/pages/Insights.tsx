@@ -250,3 +250,5 @@ export const Insights: React.FC = () => {
     </div>
   );
 };
+
+export default Insights;

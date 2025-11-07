@@ -4,10 +4,10 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, loading } = useAuth();
+  const { user, ready } = useAuth();
   const loc = useLocation();
 
-  if (loading) {
+  if (!ready) {
     return <div className="text-gray-200 p-4">Loading…</div>;
   }
   if (!user) {
