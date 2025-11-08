@@ -1,7 +1,8 @@
+// src/pages/Onboarding.tsx
 import React, { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { mqttService } from "../services/mqttService";
-import { useEnergy } from "../contexts/EnergyContext";
+import { mqttService } from "@/services/mqttService";
+import { useEnergy } from "@/contexts/EnergyContext";
 
 const isValidWsUrl = (val: string) => {
   try {
@@ -13,44 +14,49 @@ const isValidWsUrl = (val: string) => {
 };
 
 export const Onboarding: React.FC = () => {
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState<1 | 2>(1);
   const [brokerUrl, setBrokerUrl] = useState(
     localStorage.getItem("brokerUrl") || "ws://localhost:9001/mqtt"
   );
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string>("");
-  const navigate = useNavigate();
 
-  // ✅ We’ll use this to initialize a default home ID on first setup
-  const { setHomeId } = useEnergy();
+  const navigate = useNavigate();
+  const { setHomeId } = useEnergy(); // ensure we initialize a sensible default
 
   const handleConnect = useCallback(async () => {
-    setConnecting(true);
     setError("");
-
     if (!isValidWsUrl(brokerUrl)) {
-      setError("Enter a valid WebSocket URL (e.g., ws://localhost:9001/mqtt)");
-      setConnecting(false);
+      setError("Enter a valid WebSocket URL (e.g., ws://localhost:9001/mqtt).");
       return;
     }
 
+    setConnecting(true);
     try {
-      mqttService.connect(brokerUrl);
+      // Wait until we actually CONNECT (or throw on error/timeout)
+      await mqttService.connectAndWait(brokerUrl, { reconnectPeriod: 0 }, 6000);
+
+      // Persist successful setup
       localStorage.setItem("brokerUrl", brokerUrl);
       localStorage.setItem("onboarded", "true");
 
-      // ✅ Use setHomeId at least once so the variable isn’t unused,
-      // and also to ensure a sensible default on first-time setup.
+      // Initialize a default homeId the first time
       if (!localStorage.getItem("homeId")) {
         setHomeId("home1");
       }
 
-      setTimeout(() => {
-        setConnecting(false);
-        navigate("/");
-      }, 1000);
-    } catch {
-      setError("Failed to connect to MQTT broker");
+      // Go to the app
+      navigate("/", { replace: true });
+    } catch (err) {
+      // Make sure we don't keep a half-open client around
+      mqttService.disconnect();
+
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "Failed to connect to MQTT broker.";
+      setError(msg || "Failed to connect to MQTT broker.");
+    } finally {
       setConnecting(false);
     }
   }, [brokerUrl, navigate, setHomeId]);
@@ -63,31 +69,33 @@ export const Onboarding: React.FC = () => {
             <div className="text-6xl mb-4">⚡</div>
             <h1 className="text-3xl font-bold text-white">Smart Energy Monitor</h1>
             <p className="text-gray-400">
-              Track your energy consumption in real-time and save on electricity costs
+              Track your energy consumption in real time and save on electricity costs.
             </p>
+
             <div className="space-y-3 text-left bg-gray-800 rounded-xl p-6">
               <div className="flex items-start gap-3">
                 <span className="text-2xl">📊</span>
                 <div>
                   <h3 className="text-white font-semibold">Real-time Monitoring</h3>
-                  <p className="text-gray-400 text-sm">Track power usage as it happens</p>
+                  <p className="text-gray-400 text-sm">Track power usage as it happens.</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <span className="text-2xl">💰</span>
                 <div>
                   <h3 className="text-white font-semibold">Cost Tracking</h3>
-                  <p className="text-gray-400 text-sm">Monitor your electricity expenses</p>
+                  <p className="text-gray-400 text-sm">Monitor your electricity expenses.</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <span className="text-2xl">🤖</span>
                 <div>
                   <h3 className="text-white font-semibold">Smart Automation</h3>
-                  <p className="text-gray-400 text-sm">Set rules and schedules</p>
+                  <p className="text-gray-400 text-sm">Set rules and schedules.</p>
                 </div>
               </div>
             </div>
+
             <button
               onClick={() => setStep(2)}
               className="w-full bg-green-500 hover:bg-green-600 text-white py-3 rounded-lg font-semibold"
@@ -102,7 +110,7 @@ export const Onboarding: React.FC = () => {
             <div className="text-center">
               <h2 className="text-2xl font-bold text-white mb-2">Connect to MQTT Broker</h2>
               <p className="text-gray-400">
-                Enter your local MQTT broker WebSocket URL (including port and path)
+                Enter your MQTT WebSocket URL (include port and path).
               </p>
             </div>
 
@@ -127,7 +135,7 @@ export const Onboarding: React.FC = () => {
                   className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg mt-1"
                 />
                 <p className="text-xs text-gray-500 mt-2">
-                  Example: <code>ws://localhost:9001/mqtt</code> or{" "}
+                  Examples: <code>ws://localhost:9001/mqtt</code> or{" "}
                   <code>wss://broker.example.com:8083/mqtt</code>
                 </p>
               </div>
@@ -138,10 +146,13 @@ export const Onboarding: React.FC = () => {
               disabled={connecting}
               className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-600 text-white py-3 rounded-lg font-semibold"
             >
-              {connecting ? "Connecting..." : "Connect"}
+              {connecting ? "Connecting…" : "Connect"}
             </button>
 
-            <button onClick={() => setStep(1)} className="w-full text-gray-400 hover:text-white">
+            <button
+              onClick={() => setStep(1)}
+              className="w-full text-gray-400 hover:text-white"
+            >
               Back
             </button>
           </div>
@@ -150,3 +161,5 @@ export const Onboarding: React.FC = () => {
     </div>
   );
 };
+
+export default Onboarding;
