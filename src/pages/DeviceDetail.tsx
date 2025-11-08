@@ -1,46 +1,59 @@
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useEnergy } from "../contexts/EnergyContext";
 import { mqttService, PowerReading } from "../services/mqttService";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 export const DeviceDetail: React.FC = () => {
   const { deviceId } = useParams<{ deviceId: string }>();
   const { devices, updateDevice, homeId, toggleDevice } = useEnergy();
   const navigate = useNavigate();
-  const device = devices.find((d) => d.id === deviceId);
+  const device = devices.find(d => d.id === deviceId);
+
   const [powerHistory, setPowerHistory] = useState<PowerReading[]>([]);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!device || !deviceId) return;
 
     const callback = (data: PowerReading) => {
-      setPowerHistory((prev) => {
-        const updated = [...prev, data].slice(-60);
+      setPowerHistory(prev => {
+        const updated = [...prev, data].slice(-120);
         return updated;
       });
     };
 
-    mqttService.subscribe(
-      `home/${homeId}/sensor/${deviceId}/power`,
-      (payload) => callback(payload as PowerReading)
-    );
-
+    mqttService.subscribe(`home/${homeId}/sensor/${deviceId}/power`, callback);
     return () => {
-      mqttService.unsubscribe(
-        `home/${homeId}/sensor/${deviceId}/power`,
-        (payload) => callback(payload as PowerReading)
-      );
+      mqttService.unsubscribe(`home/${homeId}/sensor/${deviceId}/power`, callback);
     };
-  }, [deviceId, homeId, device]);
+  }, [device, deviceId, homeId]);
+
+  const isOnline = useMemo(() => {
+    if (!device) return false;
+    return Date.now() - device.lastSeen < 30_000;
+  }, [device]);
+
+  const chartData = useMemo(
+    () =>
+      powerHistory.map(r => ({
+        time: new Date(r.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        watts: r.watts,
+      })),
+    [powerHistory]
+  );
+
+  const onChangeNum = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>, key: "thresholdW" | "autoOffMins") => {
+      if (!device) return;
+      setSaving(true);
+      const val = Number(e.target.value);
+      updateDevice(device.id, { [key]: val });
+      const t = setTimeout(() => setSaving(false), 300);
+      return () => clearTimeout(t);
+    },
+    [device, updateDevice]
+  );
 
   if (!device) {
     return (
@@ -53,20 +66,9 @@ export const DeviceDetail: React.FC = () => {
     );
   }
 
-  const chartData = powerHistory.map((r) => ({
-    time: new Date(r.ts).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
-    watts: r.watts,
-  }));
-
   return (
     <div className="space-y-6">
-      <button
-        onClick={() => navigate("/devices")}
-        className="text-green-500 flex items-center gap-2"
-      >
+      <button onClick={() => navigate("/devices")} className="text-green-500 flex items-center gap-2">
         ← Back
       </button>
 
@@ -75,6 +77,9 @@ export const DeviceDetail: React.FC = () => {
           <div>
             <h1 className="text-2xl font-bold text-white">{device.name}</h1>
             <p className="text-gray-400">{device.room}</p>
+            <div className={`mt-1 text-xs ${isOnline ? "text-green-400" : "text-gray-500"}`}>
+              {isOnline ? "Online" : "Offline"}
+            </div>
           </div>
           <button
             onClick={() => toggleDevice(device.id)}
@@ -92,29 +97,21 @@ export const DeviceDetail: React.FC = () => {
             <div className="text-sm text-gray-400">Current Power</div>
           </div>
           <div>
-            <div className="text-3xl font-bold text-white">
-              {device.kwhToday.toFixed(2)}
-            </div>
+            <div className="text-3xl font-bold text-white">{device.kwhToday.toFixed(2)}</div>
             <div className="text-sm text-gray-400">kWh Today</div>
           </div>
         </div>
       </div>
 
       <div className="bg-gray-800 rounded-xl p-6">
-        <h2 className="text-white font-semibold mb-4">Power History (Last Hour)</h2>
-        <ResponsiveContainer width="100%" height={200}>
+        <h2 className="text-white font-semibold mb-4">Power History (Last ~2h)</h2>
+        <ResponsiveContainer width="100%" height={220}>
           <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
             <XAxis dataKey="time" stroke="#9CA3AF" />
             <YAxis stroke="#9CA3AF" />
             <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "none" }} />
-            <Line
-              type="monotone"
-              dataKey="watts"
-              stroke="#22C55E"
-              strokeWidth={2}
-              dot={false}
-            />
+            <Line type="monotone" dataKey="watts" stroke="#22C55E" strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -123,31 +120,30 @@ export const DeviceDetail: React.FC = () => {
         <h2 className="text-white font-semibold mb-4">Settings</h2>
         <div className="space-y-4">
           <div>
-            <label className="text-gray-400 text-sm">Threshold (W)</label>
+            <label htmlFor="thresholdW" className="text-gray-400 text-sm">Threshold (W)</label>
             <input
+              id="thresholdW"
+              name="thresholdW"
               type="number"
               value={device.thresholdW}
-              onChange={(e) =>
-                updateDevice(device.id, { thresholdW: parseInt(e.target.value) })
-              }
+              onChange={(e) => onChangeNum(e, "thresholdW")}
               className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
             />
           </div>
           <div>
-            <label className="text-gray-400 text-sm">Auto-off (minutes)</label>
+            <label htmlFor="autoOffMins" className="text-gray-400 text-sm">Auto-off (minutes)</label>
             <input
+              id="autoOffMins"
+              name="autoOffMins"
               type="number"
               value={device.autoOffMins}
-              onChange={(e) =>
-                updateDevice(device.id, { autoOffMins: parseInt(e.target.value) })
-              }
+              onChange={(e) => onChangeNum(e, "autoOffMins")}
               className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
             />
           </div>
+          {saving && <div className="text-xs text-gray-400">Saving…</div>}
         </div>
       </div>
     </div>
   );
 };
-
-export default DeviceDetail;
