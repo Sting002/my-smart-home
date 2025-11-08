@@ -1,5 +1,9 @@
 // src/services/mqttService.ts
-import mqtt, { IClientOptions, MqttClient, IClientPublishOptions } from "mqtt";
+import mqtt, {
+  IClientOptions,
+  MqttClient,
+  IClientPublishOptions,
+} from "mqtt";
 
 export interface PowerReading {
   ts: number;
@@ -38,18 +42,8 @@ export interface MqttMessageContext {
 type StatusCB = (status: MqttStatus, err?: Error) => void;
 type MessageCB<T = unknown> = (data: T, ctx: MqttMessageContext) => void;
 
-// Debug logger (silent unless VITE_DEBUG_MQTT === "true")
-const debug = (...args: unknown[]) => {
-  if ((import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_DEBUG_MQTT === "true") {
-    console.log("[MQTT]", ...args);
-  }
-};
-
-
 function mqttPatternToRegex(pattern: string): RegExp {
-  // Convert MQTT wildcards to regex:
-  // "+"  -> one level: [^/]+
-  // "#"  -> multi level: .*
+  // Convert MQTT wildcards to regex
   const esc = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const plus = esc.replace(/\\\+/g, "[^/]+");
   const hash = plus.replace(/\\#/g, ".*");
@@ -64,7 +58,12 @@ class MQTTService {
 
   private statusListeners: Set<StatusCB> = new Set();
 
-  /** Fire-and-forget connect (use connectAndWait if you need to confirm link) */
+  /** Public helper for guards in React code */
+  public isConnected(): boolean {
+    return this.client?.connected === true;
+  }
+
+  /** Low-level connect (does not wait) */
   connect(brokerUrl: string, options?: IClientOptions) {
     const client = mqtt.connect(brokerUrl, {
       reconnectPeriod: 1000,
@@ -78,35 +77,43 @@ class MQTTService {
       // Re-subscribe all patterns after reconnect
       for (const s of this.subs) {
         client.subscribe(s.pattern, (err) => {
-          if (err) {
+          if (err && import.meta.env?.VITE_DEBUG_MQTT === "true") {
             console.error("MQTT resubscribe error:", s.pattern, err);
-          } else {
-            debug("Resubscribed:", s.pattern);
           }
         });
       }
       this.notifyStatus("connected");
-      debug("Connected");
+      if (import.meta.env?.VITE_DEBUG_MQTT === "true") {
+        console.log("MQTT Connected");
+      }
     });
 
     client.on("reconnect", () => {
       this.notifyStatus("reconnecting");
-      debug("Reconnecting…");
+      if (import.meta.env?.VITE_DEBUG_MQTT === "true") {
+        console.log("MQTT reconnecting…");
+      }
     });
 
     client.on("close", () => {
       this.notifyStatus("disconnected");
-      debug("Disconnected");
+      if (import.meta.env?.VITE_DEBUG_MQTT === "true") {
+        console.log("MQTT Disconnected");
+      }
     });
 
     client.on("offline", () => {
       this.notifyStatus("disconnected");
-      debug("Offline");
+      if (import.meta.env?.VITE_DEBUG_MQTT === "true") {
+        console.log("MQTT Offline");
+      }
     });
 
     client.on("error", (err: Error) => {
       this.notifyStatus("error", err);
-      console.error("MQTT error:", err);
+      if (import.meta.env?.VITE_DEBUG_MQTT === "true") {
+        console.error("MQTT error:", err);
+      }
     });
 
     client.on("message", (topic: string, message: Buffer) => {
@@ -115,8 +122,10 @@ class MQTTService {
       try {
         parsed = JSON.parse(raw);
       } catch (e) {
-        // Not JSON – deliver raw string via ctx.raw; parsed will be undefined
-        debug("Non-JSON payload on", topic, raw);
+        // keep ESLint happy and skip non-JSON payloads
+        if (import.meta.env?.VITE_DEBUG_MQTT === "true") {
+          console.debug("MQTT non-JSON payload on", topic);
+        }
         parsed = undefined;
       }
       const ctx: MqttMessageContext = { topic, raw };
@@ -130,93 +139,45 @@ class MQTTService {
     });
   }
 
-  /**
-   * Connect and wait until the broker reports 'connect', or reject on error/timeout.
-   * Ensures no empty catch blocks and proper cleanup on failure.
-   */
-  connectAndWait(brokerUrl: string, options?: IClientOptions, timeoutMs = 5000): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      const client = mqtt.connect(brokerUrl, {
-        reconnectPeriod: 0, // no auto-reconnect for deterministic outcome
-        keepalive: 30,
-        ...options,
-      });
+  /** High-level connect that **waits** for 'connect' or rejects on error/timeout */
+  async connectAndWait(brokerUrl: string, timeoutMs = 7000, options?: IClientOptions) {
+    // If already connected to *same* URL, resolve quick
+    if (this.client && this.client.connected && this.client.options?.wsOptions) {
+      return;
+    }
 
+    return new Promise<void>((resolve, reject) => {
       let settled = false;
-      const done = (fn: () => void) => {
+      const timer = setTimeout(() => {
         if (!settled) {
           settled = true;
-          fn();
+          reject(new Error("MQTT connect timeout"));
         }
+      }, timeoutMs);
+
+      const onConnect = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        cleanup();
+        resolve();
+      };
+      const onError = (err: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        cleanup();
+        reject(err);
       };
 
-      const onConnect = () =>
-        done(() => {
-          this.client = client;
+      const cleanup = () => {
+        this.client?.off("connect", onConnect);
+        this.client?.off("error", onError);
+      };
 
-          // wire the standard handlers now that we accept this client
-          client.on("reconnect", () => {
-            this.notifyStatus("reconnecting");
-            debug("Reconnecting…");
-          });
-          client.on("close", () => {
-            this.notifyStatus("disconnected");
-            debug("Disconnected");
-          });
-          client.on("offline", () => {
-            this.notifyStatus("disconnected");
-            debug("Offline");
-          });
-          client.on("error", (err: Error) => {
-            this.notifyStatus("error", err);
-            console.error("MQTT error:", err);
-          });
-          client.on("message", (topic: string, message: Buffer) => {
-            const raw = message.toString();
-            let parsed: unknown;
-            try {
-              parsed = JSON.parse(raw);
-            } catch (e) {
-              debug("Non-JSON payload on", topic, raw);
-              parsed = undefined;
-            }
-            const ctx: MqttMessageContext = { topic, raw };
-            for (const s of this.subs) {
-              if (s.regex.test(topic)) s.cb(parsed as MqttPayload, ctx);
-            }
-          });
-
-          this.notifyStatus("connected");
-          debug("Connected (await)");
-          resolve();
-        });
-
-      const onError = (err: Error) =>
-        done(() => {
-          try {
-            client.end(true);
-          } catch (e) {
-            // We intentionally swallow shutdown errors but leave a breadcrumb in debug mode.
-            debug("Error while closing client after connect error:", e);
-          }
-          reject(err);
-        });
-
-      const onTimeout = () =>
-        done(() => {
-          try {
-            client.end(true);
-          } catch (e) {
-            debug("Error while closing client after timeout:", e);
-          }
-          reject(new Error("MQTT connection timed out"));
-        });
-
-      // One-shot listeners for connect / error / timeout resolution
-      client.once("connect", onConnect);
-      client.once("error", onError);
-
-      setTimeout(onTimeout, timeoutMs);
+      this.connect(brokerUrl, options);
+      this.client?.once("connect", onConnect);
+      this.client?.once("error", onError);
     });
   }
 
@@ -231,17 +192,19 @@ class MQTTService {
   }
 
   subscribe<T = unknown>(pattern: string, callback: MessageCB<T>) {
-    if (!this.client) {
-      console.warn("MQTT subscribe called before connect:", pattern);
-      return;
-    }
     const entry = { pattern, regex: mqttPatternToRegex(pattern), cb: callback as MessageCB };
     this.subs.push(entry);
+
+    if (!this.client || !this.client.connected) {
+      if (import.meta.env?.VITE_DEBUG_MQTT === "true") {
+        console.warn("MQTT subscribe called before connect:", pattern);
+      }
+      return;
+    }
+
     this.client.subscribe(pattern, (err) => {
       if (err) {
         console.error("MQTT subscribe error:", pattern, err);
-      } else {
-        debug("Subscribed:", pattern);
       }
     });
   }
@@ -255,32 +218,29 @@ class MQTTService {
     } else {
       this.subs = this.subs.filter((s) => s.pattern !== pattern);
     }
-    // Unsub from broker (safe even if wildcard)
-    if (this.client) {
+
+    // Unsub from broker if connected
+    if (this.client && this.client.connected) {
       this.client.unsubscribe(pattern, (err) => {
-        if (err) {
+        if (err && import.meta.env?.VITE_DEBUG_MQTT === "true") {
           console.error("MQTT unsubscribe error:", pattern, err);
-        } else {
-          debug("Unsubscribed:", pattern);
         }
       });
+    } else {
+      // keep ESLint happy (no-empty)
+      if (import.meta.env?.VITE_DEBUG_MQTT === "true") {
+        console.debug("MQTT unsubscribe queued (not connected yet):", pattern);
+      }
     }
   }
 
   publish<T extends object>(topic: string, payload: T, opts?: IClientPublishOptions) {
-    if (!this.client) {
-      console.warn("MQTT publish before connect:", topic);
-      return;
-    }
+    if (!this.client || !this.client.connected) return;
     this.client.publish(topic, JSON.stringify(payload), opts);
   }
 
   disconnect() {
-    try {
-      this.client?.end(true);
-    } catch (e) {
-      debug("Error while disconnecting:", e);
-    }
+    this.client?.end(true);
     this.client = null;
     this.subs = [];
     this.statusListeners.clear();

@@ -10,19 +10,16 @@ import AppLayout from "@/components/AppLayout";
 
 import Login from "@/pages/Login";
 import NotFound from "@/pages/NotFound";
-
-// Pages
 import { Dashboard } from "@/pages/Dashboard";
 import { Devices } from "@/pages/Devices";
 import { DeviceDetail } from "@/pages/DeviceDetail";
 import { Automations } from "@/pages/Automations";
 import { Insights } from "@/pages/Insights";
 import Settings from "@/pages/Settings";
-import  AddDevice from "@/pages/AddDevice";
+import AddDevice from "@/pages/AddDevice";
 import { Onboarding } from "@/pages/Onboarding";
 
 export default function App() {
-  const onboardingElement = <Onboarding />;
   return (
     <BrowserRouter>
       <AuthProvider>
@@ -33,33 +30,31 @@ export default function App() {
               <Route path="/login" element={<Login />} />
             </Route>
 
-            {/* Protected shell + all app pages */}
-            <Route
-              element={
-                <ProtectedRoute />
-              }
-            >
+            {/* Protected app */}
+            <Route element={<ProtectedRoute />}>
+              {/* Parent needs trailing * because children are nested */}
               <Route
+                path="/*"
                 element={
                   <EnergyProvider>
                     <AppLayout />
                   </EnergyProvider>
                 }
               >
-                <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/devices" element={<Devices />} />
-                <Route path="/devices/add" element={<AddDevice />} />
-                <Route path="/device/:deviceId" element={<DeviceDetail />} />
-                <Route path="/automations" element={<Automations />} />
-                <Route path="/insights" element={<Insights />} />
-                <Route path="/settings" element={<Settings />} />
-                {/* If you gate onboarding too, you can route it here: */}
-                <Route path="/onboarding" element={onboardingElement} />
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<Dashboard />} />
+                <Route path="devices" element={<Devices />} />
+                <Route path="devices/add" element={<AddDevice />} />
+                <Route path="device/:deviceId" element={<DeviceDetail />} />
+                <Route path="automations" element={<Automations />} />
+                <Route path="insights" element={<Insights />} />
+                <Route path="settings" element={<Settings />} />
+                <Route path="onboarding" element={<Onboarding />} />
+                <Route path="*" element={<NotFound />} />
               </Route>
             </Route>
 
-            {/* 404 */}
+            {/* Fallback */}
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

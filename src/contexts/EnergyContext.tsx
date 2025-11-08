@@ -1,13 +1,17 @@
 /* eslint-disable react-refresh/only-export-components */
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
   useState,
-  useCallback, // ✅ FIX: added import
 } from "react";
-import { mqttService, type MqttMessageContext } from "../services/mqttService";
+import {
+  mqttService,
+  type MqttMessageContext,
+  type MqttStatus,
+} from "@/services/mqttService";
 import type {
   Device,
   EnergyContextType,
@@ -17,10 +21,16 @@ import type {
 
 const EnergyContext = createContext<EnergyContextType | undefined>(undefined);
 
+// Chart memory
 const MAX_POINTS = Number(import.meta.env?.VITE_MAX_CHART_POINTS || 120);
-const DEFAULT_WS = import.meta.env?.VITE_MQTT_BROKER_URL || "ws://localhost:9001";
+// Default broker if none saved during onboarding
+const DEFAULT_WS =
+  import.meta.env?.VITE_MQTT_BROKER_URL || "ws://localhost:9001/mqtt";
 
-export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
+  // ===== Local persistent state =====
   const [devices, setDevices] = useState<Device[]>(() => {
     const stored = localStorage.getItem("devices");
     return stored ? (JSON.parse(stored) as Device[]) : [];
@@ -33,46 +43,89 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const [powerHistory, setPowerHistory] = useState<PowerHistoryMap>({});
 
-  const [homeId, setHomeId] = useState(() => localStorage.getItem("homeId") || "home1");
-  const [currency, setCurrency] = useState(() => localStorage.getItem("currency") || "USD");
-  const [tariff, setTariff] = useState(() => {
+  const [homeId, setHomeId] = useState<string>(() => {
+    return localStorage.getItem("homeId") || "home1";
+  });
+  const [currency, setCurrency] = useState<string>(() => {
+    return localStorage.getItem("currency") || "USD";
+  });
+  const [tariff, setTariff] = useState<number>(() => {
     const stored = localStorage.getItem("tariff");
     return stored ? parseFloat(stored) : 0.12;
   });
 
-  // Persist local data
-  useEffect(() => localStorage.setItem("devices", JSON.stringify(devices)), [devices]);
-  useEffect(() => localStorage.setItem("alerts", JSON.stringify(alerts)), [alerts]);
+  // Track live connection status so we can (re)subscribe when ready
+  const [connected, setConnected] = useState<boolean>(
+    () => mqttService.isConnected()
+  );
+
+  // ===== Persist some state to localStorage =====
+  useEffect(() => {
+    localStorage.setItem("devices", JSON.stringify(devices));
+  }, [devices]);
+
+  useEffect(() => {
+    localStorage.setItem("alerts", JSON.stringify(alerts));
+  }, [alerts]);
+
   useEffect(() => {
     localStorage.setItem("homeId", homeId);
     localStorage.setItem("currency", currency);
     localStorage.setItem("tariff", tariff.toString());
   }, [homeId, currency, tariff]);
 
-  // Connect on mount if onboarded
+  // ===== Connect to MQTT once the app is onboarded =====
   useEffect(() => {
-    if (localStorage.getItem("onboarded") === "true") {
-      const url = localStorage.getItem("brokerUrl") || DEFAULT_WS;
-      mqttService.connect(url, { keepalive: 30 });
+    const onboarded = localStorage.getItem("onboarded") === "true";
+    if (!onboarded) return;
+
+    const url = localStorage.getItem("brokerUrl") || DEFAULT_WS;
+    if (!mqttService.isConnected()) {
+      mqttService.connect(url, { keepalive: 30, reconnectPeriod: 1000 });
     }
+
+    // Listen for connection status changes to trigger (re)subscriptions
+    const onStatus = (status: MqttStatus) => {
+      setConnected(status === "connected");
+    };
+    mqttService.onStatusChange(onStatus);
+
+    // Seed current state
+    setConnected(mqttService.isConnected());
+
+    return () => {
+      mqttService.offStatusChange(onStatus);
+    };
   }, []);
 
-  // === Wildcard MQTT Subscriptions ===
+  // ===== Subscription wiring (runs only when connected and when homeId changes) =====
   useEffect(() => {
+    if (!connected) return;
+
+    // Topics for this home
     const powerPattern = `home/${homeId}/sensor/+/power`;
     const energyPattern = `home/${homeId}/sensor/+/energy`;
     const alertPattern = `home/${homeId}/event/alert`;
 
+    // ---- Handlers ----
     const onPower = (data: unknown, { topic }: MqttMessageContext) => {
-      if (!data || typeof (data as Record<string, unknown>).watts !== "number") return;
+      // Expect { ts?: number, watts: number }
+      if (
+        !data ||
+        typeof (data as Record<string, unknown>).watts !== "number"
+      )
+        return;
+
       const d = data as { ts?: number; watts: number };
       const parts = topic.split("/");
+      // home / <homeId> / sensor / <deviceId> / power
       const deviceId = parts[4];
       if (!deviceId) return;
 
       setDevices((prev) => {
         const existing = prev.find((x) => x.id === deviceId);
         if (!existing) {
+          // First time we see this device, create a placeholder entry
           return [
             ...prev,
             {
@@ -91,7 +144,12 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
         return prev.map((x) =>
           x.id === deviceId
-            ? { ...x, watts: d.watts, isOn: d.watts > 5, lastSeen: d.ts ?? Date.now() }
+            ? {
+                ...x,
+                watts: d.watts,
+                isOn: d.watts > 5,
+                lastSeen: d.ts ?? Date.now(),
+              }
             : x
         );
       });
@@ -104,20 +162,34 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
 
     const onEnergy = (data: unknown, { topic }: MqttMessageContext) => {
-      if (!data || typeof (data as Record<string, unknown>).wh_total !== "number") return;
+      // Expect { wh_total: number }
+      if (
+        !data ||
+        typeof (data as Record<string, unknown>).wh_total !== "number"
+      )
+        return;
+
       const e = data as { wh_total: number };
       const deviceId = topic.split("/")[4];
       if (!deviceId) return;
+
       setDevices((prev) =>
-        prev.map((x) => (x.id === deviceId ? { ...x, kwhToday: e.wh_total / 1000 } : x))
+        prev.map((x) =>
+          x.id === deviceId ? { ...x, kwhToday: e.wh_total / 1000 } : x
+        )
       );
     };
 
     const onAlert = (data: unknown) => {
+      // Expected: { ts, deviceId?, severity: "info"|"warning"|"danger", message, type? }
       const payload = (data ?? {}) as Record<string, unknown>;
       const sevRaw = String(payload["severity"] ?? "info");
       const sev: Alert["type"] =
-        sevRaw === "danger" ? "critical" : sevRaw === "warning" ? "warning" : "info";
+        sevRaw === "danger"
+          ? "critical"
+          : sevRaw === "warning"
+          ? "warning"
+          : "info";
 
       const alert: Alert = {
         id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -134,33 +206,45 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setAlerts((prev) => [alert, ...prev].slice(0, 50));
     };
 
+    // Subscribe when connected
     mqttService.subscribe(powerPattern, onPower);
     mqttService.subscribe(energyPattern, onEnergy);
     mqttService.subscribe(alertPattern, onAlert);
 
+    // Cleanup on homeId change or unmount
     return () => {
       mqttService.unsubscribe(powerPattern, onPower);
       mqttService.unsubscribe(energyPattern, onEnergy);
       mqttService.unsubscribe(alertPattern, onAlert);
     };
-  }, [homeId]);
+  }, [connected, homeId]);
 
-  // === Context Methods ===
+  // ===== Public actions =====
   const toggleDevice = useCallback(
     (deviceId: string) => {
       const device = devices.find((d) => d.id === deviceId);
-      if (device) {
-        mqttService.publish(`home/${homeId}/cmd/${deviceId}/set`, { on: !device.isOn });
-      }
+      if (!device) return;
+      mqttService.publish(`home/${homeId}/cmd/${deviceId}/set`, {
+        on: !device.isOn,
+      });
     },
     [devices, homeId]
   );
 
-  const updateDevice = (deviceId: string, updates: Partial<Device>) =>
-    setDevices((prev) => prev.map((d) => (d.id === deviceId ? { ...d, ...updates } : d)));
+  const updateDevice = useCallback(
+    (deviceId: string, updates: Partial<Device>) => {
+      setDevices((prev) =>
+        prev.map((d) => (d.id === deviceId ? { ...d, ...updates } : d))
+      );
+    },
+    []
+  );
 
-  const addDevice = (device: Device) => setDevices((prev) => [...prev, device]);
+  const addDevice = useCallback((device: Device) => {
+    setDevices((prev) => [...prev, device]);
+  }, []);
 
+  // ===== Context value =====
   const value = useMemo<EnergyContextType>(
     () => ({
       devices,
@@ -176,14 +260,26 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       updateDevice,
       addDevice,
     }),
-    [devices, alerts, powerHistory, homeId, currency, tariff, toggleDevice]
+    [
+      devices,
+      alerts,
+      powerHistory,
+      homeId,
+      currency,
+      tariff,
+      toggleDevice,
+      updateDevice,
+      addDevice,
+    ]
   );
 
-  return <EnergyContext.Provider value={value}>{children}</EnergyContext.Provider>;
+  return (
+    <EnergyContext.Provider value={value}>{children}</EnergyContext.Provider>
+  );
 };
 
-export const useEnergy = () => {
-  const context = useContext(EnergyContext);
-  if (!context) throw new Error("useEnergy must be used within EnergyProvider");
-  return context;
+export const useEnergy = (): EnergyContextType => {
+  const ctx = useContext(EnergyContext);
+  if (!ctx) throw new Error("useEnergy must be used within EnergyProvider");
+  return ctx;
 };
