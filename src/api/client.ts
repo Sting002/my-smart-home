@@ -1,4 +1,5 @@
 // src/api/client.ts
+import { ensureCsrfToken } from "./csrf";
 
 export class APIError extends Error {
   status: number;
@@ -27,12 +28,23 @@ function joinUrl(base: string, path: string) {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const url = joinUrl(API_BASE, path);
 
+  const method = String((init.method || "GET")).toUpperCase();
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+    ...(init.headers || {}),
+  };
+  if (method !== "GET") {
+    try {
+      const token = await ensureCsrfToken();
+      (headers as Record<string, string>)["X-CSRF-Token"] = token;
+    } catch {
+      // Server may have CSRF disabled; ignore fetch failure
+    }
+  }
+
   const res = await fetch(url, {
     credentials: "include", // send cookies (session)
-    headers: {
-      "Content-Type": "application/json",
-      ...(init.headers || {}),
-    },
+    headers,
     ...init,
   });
 

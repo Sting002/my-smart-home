@@ -51,7 +51,7 @@ app.use((_req, res, next) => {
   const csp = [
     "default-src 'self' 'unsafe-inline' data: blob:;",
     "script-src 'self' 'unsafe-inline' 'unsafe-eval';",
-    "connect-src 'self' ws: http://localhost:4000 http://127.0.0.1:4000 http://localhost:8080 http://127.0.0.1:8080;",
+    "connect-src 'self' ws: wss: http://localhost:4000 http://127.0.0.1:4000 http://localhost:8080 http://127.0.0.1:8080;",
     "img-src 'self' data: blob:;",
     "style-src 'self' 'unsafe-inline';",
     "font-src 'self' data:;",

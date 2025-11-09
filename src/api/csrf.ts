@@ -1,7 +1,7 @@
 // src/api/csrf.ts
 // CSRF utilities for the Smart Home app
 
-type CsrfResponse = { csrfToken: string };
+type CsrfResponse = { token: string; enabled?: boolean };
 
 let cachedToken: string | null = null;
 let lastFetchedAt = 0;
@@ -14,7 +14,7 @@ function stillFresh(): boolean {
 /** Fetch a new CSRF token from the backend. */
 async function fetchCsrfToken(): Promise<string> {
   // Assumes Vite dev proxy maps /api -> http://localhost:4000
-  const res = await fetch("/api/auth/csrf-token", {
+  const res = await fetch("/api/csrf", {
     method: "GET",
     credentials: "include",
   });
@@ -25,10 +25,10 @@ async function fetchCsrfToken(): Promise<string> {
   }
 
   const data = (await res.json()) as CsrfResponse;
-  if (!data?.csrfToken) {
-    throw new Error("CSRF token response missing csrfToken field");
+  if (!data?.token) {
+    throw new Error("CSRF token response missing token field");
   }
-  cachedToken = data.csrfToken;
+  cachedToken = data.token;
   lastFetchedAt = Date.now();
   return cachedToken;
 }

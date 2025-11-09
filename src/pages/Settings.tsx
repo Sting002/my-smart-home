@@ -2,6 +2,7 @@ import React, { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useEnergy } from "../contexts/EnergyContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { mqttService } from "@/services/mqttService";
 
 type ExportShape = {
   homeId: string;
@@ -43,6 +44,13 @@ export const Settings: React.FC = () => {
   // ✅ Uses brokerUrl state; shows success banner
   const handleSave = useCallback(() => {
     localStorage.setItem("brokerUrl", brokerUrl);
+    // Reconnect to apply new broker immediately
+    try {
+      mqttService.disconnect();
+      mqttService.connect(brokerUrl, { keepalive: 30, reconnectPeriod: 1000 });
+    } catch (err) {
+      console.error("MQTT reconnect failed:", err);
+    }
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 3000);
   }, [brokerUrl]);

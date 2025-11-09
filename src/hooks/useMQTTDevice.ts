@@ -40,23 +40,27 @@ export const useMQTTDevice = (deviceId: string) => {
       updateDevice(deviceId, { kwhToday });
     };
 
+    // Use stable callbacks so unsubscribe works correctly
+    const onPower = (payload: unknown) => powerCallback(payload as PowerReading);
+    const onEnergy = (payload: unknown) => energyCallback(payload as EnergyReading);
+
     mqttService.subscribe(
       `home/${homeId}/sensor/${deviceId}/power`,
-      (payload) => powerCallback(payload as PowerReading)
+      onPower
     );
     mqttService.subscribe(
       `home/${homeId}/sensor/${deviceId}/energy`,
-      (payload) => energyCallback(payload as EnergyReading)
+      onEnergy
     );
 
     return () => {
       mqttService.unsubscribe(
         `home/${homeId}/sensor/${deviceId}/power`,
-        (payload) => powerCallback(payload as PowerReading)
+        onPower
       );
       mqttService.unsubscribe(
         `home/${homeId}/sensor/${deviceId}/energy`,
-        (payload) => energyCallback(payload as EnergyReading)
+        onEnergy
       );
     };
   }, [deviceId, homeId, updateDevice, addDevice]);

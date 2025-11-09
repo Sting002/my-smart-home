@@ -74,12 +74,12 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
     localStorage.setItem("tariff", tariff.toString());
   }, [homeId, currency, tariff]);
 
-  // ===== Connect to MQTT once the app is onboarded =====
+  // ===== Connect to MQTT when onboarded and broker URL changes =====
   useEffect(() => {
     const onboarded = localStorage.getItem("onboarded") === "true";
+    const url = localStorage.getItem("brokerUrl") || DEFAULT_WS;
     if (!onboarded) return;
 
-    const url = localStorage.getItem("brokerUrl") || DEFAULT_WS;
     if (!mqttService.isConnected()) {
       mqttService.connect(url, { keepalive: 30, reconnectPeriod: 1000 });
     }
@@ -96,7 +96,11 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => {
       mqttService.offStatusChange(onStatus);
     };
-  }, []);
+  }, [
+    // Re-evaluate when onboarding flag or broker URL change on re-render
+    localStorage.getItem("onboarded"),
+    localStorage.getItem("brokerUrl") || DEFAULT_WS,
+  ]);
 
   // ===== Subscription wiring (runs only when connected and when homeId changes) =====
   useEffect(() => {

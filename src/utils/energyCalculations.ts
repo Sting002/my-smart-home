@@ -50,3 +50,4 @@ export const calculateEfficiency = (actualKwh: number, expectedKwh: number): num
   if (expectedKwh === 0) return 0;
   return ((expectedKwh - actualKwh) / expectedKwh) * 100;
 };
+

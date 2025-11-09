@@ -52,6 +52,7 @@ function mqttPatternToRegex(pattern: string): RegExp {
 
 class MQTTService {
   private client: MqttClient | null = null;
+  private currentUrl: string | null = null;
 
   // Wildcard-friendly subscription registry
   private subs: Array<{ pattern: string; regex: RegExp; cb: MessageCB }> = [];
@@ -72,6 +73,7 @@ class MQTTService {
     });
 
     this.client = client;
+    this.currentUrl = brokerUrl;
 
     client.on("connect", () => {
       // Re-subscribe all patterns after reconnect
@@ -141,9 +143,14 @@ class MQTTService {
 
   /** High-level connect that **waits** for 'connect' or rejects on error/timeout */
   async connectAndWait(brokerUrl: string, timeoutMs = 7000, options?: IClientOptions) {
-    // If already connected to *same* URL, resolve quick
-    if (this.client && this.client.connected && this.client.options?.wsOptions) {
+    // If already connected to the same URL, resolve quick
+    if (this.client && this.client.connected && this.currentUrl === brokerUrl) {
       return;
+    }
+
+    // If connected to a different URL, switch by disconnecting first
+    if (this.client && this.client.connected && this.currentUrl !== brokerUrl) {
+      this.disconnect();
     }
 
     return new Promise<void>((resolve, reject) => {
@@ -151,6 +158,8 @@ class MQTTService {
       const timer = setTimeout(() => {
         if (!settled) {
           settled = true;
+          // Ensure no lingering auto-reconnect loop
+          this.disconnect();
           reject(new Error("MQTT connect timeout"));
         }
       }, timeoutMs);
@@ -167,6 +176,8 @@ class MQTTService {
         settled = true;
         clearTimeout(timer);
         cleanup();
+        // Ensure no lingering auto-reconnect loop
+        this.disconnect();
         reject(err);
       };
 
@@ -242,8 +253,9 @@ class MQTTService {
   disconnect() {
     this.client?.end(true);
     this.client = null;
+    this.currentUrl = null;
     this.subs = [];
-    this.statusListeners.clear();
+    // Keep status listeners registered so consumers continue to receive updates after reconnect
   }
 }
 

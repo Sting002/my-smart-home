@@ -73,22 +73,28 @@ function verifyPassword(password, salt, expectedHash) {
 function setAuthCookie(res, data, maxAgeMs = 1000 * 60 * 60 * 24 * 7) {
   const payload = {
     sub: data.userId,
-    email: data.email,
+    username: data.username,
     iat: Date.now(),
     exp: Date.now() + maxAgeMs,
   };
   const token = signToken(payload, JWT_SECRET);
+  const isProd = String(process.env.NODE_ENV).toLowerCase() === "production";
   res.setHeader(
     "Set-Cookie",
-    `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax`
+    `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax${
+      isProd ? "; Secure" : ""
+    }`
   );
 }
 
 /** Clear auth cookie */
 function clearAuthCookie(res) {
+  const isProd = String(process.env.NODE_ENV).toLowerCase() === "production";
   res.setHeader(
     "Set-Cookie",
-    `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+    `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${
+      isProd ? "; Secure" : ""
+    }`
   );
 }
 

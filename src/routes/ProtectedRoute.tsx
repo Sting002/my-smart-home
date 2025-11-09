@@ -10,7 +10,7 @@ const ProtectedRoute: React.FC = () => {
   if (!ready) return <div className="text-gray-200 p-4">Loading…</div>;
 
   // Not logged in → go to /login
-  if (!user) return <Navigate to="/login" state={{ from: loc }} replace />;
+  if (!user) return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
 
   // Enforce onboarding
   const onboarded = localStorage.getItem("onboarded") === "true";

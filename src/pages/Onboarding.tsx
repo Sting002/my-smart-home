@@ -45,6 +45,8 @@ export const Onboarding: React.FC = () => {
       // Go straight to the app (ProtectedRoute will allow it now)
       navigate("/dashboard", { replace: true });
     } catch (e) {
+      // Ensure any auto-reconnecting client from this failed attempt is torn down
+      mqttService.disconnect();
       setError("Failed to connect to MQTT broker. Check URL and broker.");
     } finally {
       setConnecting(false);
