@@ -16,6 +16,7 @@ import {
 } from "recharts";
 
 type Period = "day" | "week" | "month";
+type TrendMetric = "power" | "energy";
 
 function formatMinute(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -24,21 +25,21 @@ function formatMinute(ts: number) {
 export const Insights: React.FC = () => {
   const { devices, tariff, currency, powerHistory } = useEnergy();
   const [period, setPeriod] = useState<Period>("day");
+  const [metric, setMetric] = useState<TrendMetric>("power");
 
   // Guard: needs at least one device to show breakdowns
   const hasDevices = devices.length > 0;
 
-  // --- COLORS for Pie slices
+  // Colors for charts
   const COLORS = ["#22C55E", "#F59E0B", "#EF4444", "#3B82F6", "#8B5CF6", "#EC4899", "#10B981", "#06B6D4"];
 
   /**
    * Build "Today" trend from recent power history
    * - Buckets all device power readings into 1-minute bins
    * - Sums power across devices per minute
-   * - Converts to kWh for a soft energy trend (approximation)
+   * - Also includes approximate energy per minute (kWh): watts * (1/60) / 1000
    */
   const { todayTrend, todayKwhTotal } = useMemo(() => {
-    // Bucket by minute start (ms)
     const bucketMap = new Map<number, number>(); // minuteTs -> totalWatts
 
     Object.values(powerHistory).forEach((list) => {
@@ -48,12 +49,9 @@ export const Insights: React.FC = () => {
       });
     });
 
-    // Sort by minute asc and build chart points
     const minutes = Array.from(bucketMap.entries()).sort((a, b) => a[0] - b[0]);
-
     const chart = minutes.map(([minuteTs, totalWatts]) => {
-      // 1-minute bin energy ≈ watts * (1/60) Wh => kWh
-      const kwh = (totalWatts / 60) / 1000;
+      const kwh = totalWatts / 60 / 1000; // 1-minute bin energy in kWh
       return {
         time: formatMinute(minuteTs),
         watts: Number(totalWatts.toFixed(0)),
@@ -61,7 +59,7 @@ export const Insights: React.FC = () => {
       };
     });
 
-    // Today total kWh from devices (authoritative, comes from /energy messages)
+    // Today total kWh from devices (authoritative from /energy messages)
     const kwhFromDevices = devices.reduce((sum, d) => sum + d.kwhToday, 0);
 
     return {
@@ -70,75 +68,52 @@ export const Insights: React.FC = () => {
     };
   }, [powerHistory, devices]);
 
-  // Device breakdown for Pie (uses actual kwhToday)
+  // Device breakdown for Pie (kWh + cost)
   const deviceBreakdown = useMemo(() => {
     return devices
-      .map((d) => ({ name: d.name, value: d.kwhToday }))
+      .map((d) => ({ id: d.id, name: d.name, value: d.kwhToday, cost: d.kwhToday * tariff }))
       .filter((x) => x.value > 0)
       .sort((a, b) => b.value - a.value);
-  }, [devices]);
+  }, [devices, tariff]);
 
-  // Derived KPIs
-  const avgDailyKwh = useMemo(() => {
-    // We only have "today" in this simple setup; average = today so far
-    return todayKwhTotal;
-  }, [todayKwhTotal]);
+  // KPIs
+  const avgDailyKwh = useMemo(() => todayKwhTotal, [todayKwhTotal]);
+  const projectedMonthlyCost = useMemo(() => (todayKwhTotal * 30 * tariff).toFixed(2), [todayKwhTotal, tariff]);
 
-  const projectedMonthlyCost = useMemo(() => {
-    const monthly = todayKwhTotal * 30 * tariff;
-    return monthly.toFixed(2);
-  }, [todayKwhTotal, tariff]);
-
-  // Build weekly bars (simple: today value + zeros for others)
+  // Weekly placeholder: today's value in the proper weekday slot
   const weeklyBars = useMemo(() => {
     const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    // place today's value in today's slot
     const todayIdx = new Date().getDay(); // Sun=0..Sat=6
-    const mapIdx = (d: number) => (d === 0 ? 6 : d - 1); // shift so Mon=0..Sun=6
+    const mapIdx = (d: number) => (d === 0 ? 6 : d - 1); // Mon=0..Sun=6
     const arr = weekdays.map((day) => ({ day, kwh: 0 }));
     arr[mapIdx(todayIdx)].kwh = Number(todayKwhTotal.toFixed(3));
     return arr;
   }, [todayKwhTotal]);
 
-  // Month bars: placeholder (today only) – can be extended to persist days in localStorage
+  // Monthly placeholder: 30-day simple array with today's value
   const monthBars = useMemo(() => {
     const day = new Date().getDate();
-    const arr = Array.from({ length: 30 }, (_, i) => ({
-      day: String(i + 1).padStart(2, "0"),
-      kwh: 0,
-    }));
-    if (day >= 1 && day <= 30) {
-      arr[day - 1].kwh = Number(todayKwhTotal.toFixed(3));
-    }
+    const arr = Array.from({ length: 30 }, (_, i) => ({ day: String(i + 1).padStart(2, "0"), kwh: 0 }));
+    if (day >= 1 && day <= 30) arr[day - 1].kwh = Number(todayKwhTotal.toFixed(3));
     return arr;
   }, [todayKwhTotal]);
 
+  // Lightweight recommendations
   const recommendations = useMemo(() => {
     const recs: { icon: string; text: string }[] = [];
     if (todayKwhTotal > 0.05) {
       recs.push({ icon: "⚡", text: "Noticeable usage detected. Consider shifting heavy loads to off-peak." });
     }
-    const top = devices
-      .slice()
-      .sort((a, b) => b.kwhToday - a.kwhToday)[0];
+    const top = devices.slice().sort((a, b) => b.kwhToday - a.kwhToday)[0];
     if (top && top.kwhToday > 0) {
-      recs.push({
-        icon: "🔌",
-        text: `${top.name} is your top consumer today. Check schedule or thresholds.`,
-      });
+      recs.push({ icon: "🏷️", text: `${top.name} is your top consumer today. Check schedule or thresholds.` });
     }
-    if (recs.length === 0) {
-      recs.push({ icon: "✅", text: "No high consumption patterns detected yet. Keep monitoring." });
-    }
+    if (recs.length === 0) recs.push({ icon: "ℹ️", text: "No high consumption patterns detected yet. Keep monitoring." });
     return recs;
   }, [devices, todayKwhTotal]);
 
   if (!hasDevices) {
-    return (
-      <div className="text-center text-gray-400 mt-10">
-        No devices connected. Connect a device to view insights.
-      </div>
-    );
+    return <div className="text-center text-gray-400 mt-10">No devices connected. Connect a device to view insights.</div>;
   }
 
   return (
@@ -147,15 +122,27 @@ export const Insights: React.FC = () => {
       <div className="bg-gray-800 rounded-xl p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-white font-semibold">Energy Trends</h2>
-          <select
-            value={period}
-            onChange={(e) => setPeriod(e.target.value as Period)}
-            className="bg-gray-700 text-white px-3 py-2 rounded border border-gray-600"
-          >
-            <option value="day">Today</option>
-            <option value="week">This Week</option>
-            <option value="month">This Month</option>
-          </select>
+          <div className="flex gap-2">
+            <select
+              value={metric}
+              onChange={(e) => setMetric(e.target.value as TrendMetric)}
+              className="bg-gray-700 text-white px-3 py-2 rounded border border-gray-600"
+              aria-label="Trend metric"
+            >
+              <option value="power">Power (W)</option>
+              <option value="energy">Energy (kWh/min)</option>
+            </select>
+            <select
+              value={period}
+              onChange={(e) => setPeriod(e.target.value as Period)}
+              className="bg-gray-700 text-white px-3 py-2 rounded border border-gray-600"
+              aria-label="Trend period"
+            >
+              <option value="day">Today</option>
+              <option value="week">This Week</option>
+              <option value="month">This Month</option>
+            </select>
+          </div>
         </div>
 
         {period === "day" && (
@@ -164,8 +151,23 @@ export const Insights: React.FC = () => {
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="time" stroke="#9CA3AF" />
               <YAxis stroke="#9CA3AF" />
-              <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "none" }} />
-              <Line type="monotone" dataKey="watts" stroke="#22C55E" strokeWidth={2} dot={false} />
+              <Tooltip
+                contentStyle={{ backgroundColor: "#1F2937", border: "none" }}
+                formatter={(value: any, name: any) => {
+                  const isPower = metric === "power";
+                  if (name === (isPower ? "watts" : "kwh")) {
+                    return [isPower ? `${value} W` : `${value} kWh`, isPower ? "Power" : "Energy"];
+                  }
+                  return [value, name];
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey={metric === "power" ? "watts" : "kwh"}
+                stroke="#22C55E"
+                strokeWidth={2}
+                dot={false}
+              />
             </LineChart>
           </ResponsiveContainer>
         )}
@@ -176,7 +178,7 @@ export const Insights: React.FC = () => {
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="day" stroke="#9CA3AF" />
               <YAxis stroke="#9CA3AF" />
-              <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "none" }} />
+              <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "none" }} formatter={(v: any) => [`${v} kWh`, "Energy"]} />
               <Bar dataKey="kwh" fill="#22C55E" />
             </BarChart>
           </ResponsiveContainer>
@@ -188,11 +190,13 @@ export const Insights: React.FC = () => {
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="day" stroke="#9CA3AF" />
               <YAxis stroke="#9CA3AF" />
-              <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "none" }} />
+              <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "none" }} formatter={(v: any) => [`${v} kWh`, "Energy"]} />
               <Bar dataKey="kwh" fill="#22C55E" />
             </BarChart>
           </ResponsiveContainer>
         )}
+
+        {period !== "day" && <div className="text-xs text-gray-500 mt-2">Note: Weekly/Monthly values currently reflect today only.</div>}
       </div>
 
       {/* KPIs */}
@@ -213,25 +217,41 @@ export const Insights: React.FC = () => {
       <div className="bg-gray-800 rounded-xl p-6">
         <h2 className="text-white font-semibold mb-4">Device Breakdown (kWh Today)</h2>
         {deviceBreakdown.length === 0 ? (
-          <div className="text-gray-400 text-sm">Collecting data… check back in a minute.</div>
+          <div className="text-gray-400 text-sm">Collecting data. Check back in a minute.</div>
         ) : (
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie
-                data={deviceBreakdown}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                outerRadius={80}
-                dataKey="value"
-              >
-                {deviceBreakdown.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+              <Pie data={deviceBreakdown} cx="50%" cy="50%" labelLine={false} outerRadius={80} dataKey="value">
+                {deviceBreakdown.map((d, i) => (
+                  <Cell key={d.id} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "none" }} />
+              <Tooltip
+                contentStyle={{ backgroundColor: "#1F2937", border: "none" }}
+                formatter={(v: any, _n: any, p: any) => {
+                  const idx = p?.payload ? deviceBreakdown.findIndex((d) => d.name === p.payload.name) : -1;
+                  const cost = idx >= 0 ? deviceBreakdown[idx].cost : 0;
+                  return [`${Number(v).toFixed(3)} kWh • ${currency} ${(cost ?? 0).toFixed(2)}`, p?.payload?.name ?? "Device"];
+                }}
+              />
             </PieChart>
           </ResponsiveContainer>
+        )}
+
+        {deviceBreakdown.length > 0 && (
+          <div className="mt-4 space-y-1 text-sm">
+            {deviceBreakdown.slice(0, 6).map((d, i) => (
+              <div key={d.id} className="flex justify-between text-gray-300">
+                <span>
+                  <span className="inline-block w-2 h-2 rounded-full mr-2" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                  {d.name}
+                </span>
+                <span>
+                  {d.value.toFixed(3)} kWh · {currency} {d.cost.toFixed(2)}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
@@ -252,3 +272,4 @@ export const Insights: React.FC = () => {
 };
 
 export default Insights;
+

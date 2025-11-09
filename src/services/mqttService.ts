@@ -250,6 +250,12 @@ class MQTTService {
     this.client.publish(topic, JSON.stringify(payload), opts);
   }
 
+  /** Publish raw payload without JSON encoding (e.g., to clear retained messages) */
+  publishRaw(topic: string, payload: string | Buffer, opts?: IClientPublishOptions) {
+    if (!this.client || !this.client.connected) return;
+    this.client.publish(topic, payload, opts);
+  }
+
   disconnect() {
     this.client?.end(true);
     this.client = null;

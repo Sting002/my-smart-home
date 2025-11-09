@@ -44,4 +44,5 @@ export interface EnergyContextType {
   toggleDevice: (deviceId: string) => void;
   updateDevice: (deviceId: string, updates: Partial<Device>) => void;
   addDevice: (device: Device) => void;
+  removeDevice: (deviceId: string) => void;
 }

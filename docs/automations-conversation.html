@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Automations Page — Conversation & Implementation Guide</title>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: #111827;
+        --text: #e5e7eb;
+        --muted: #9ca3af;
+        --accent: #22c55e;
+        --border: #374151;
+      }
+      html, body { background: var(--bg); color: var(--text); font: 15px/1.6 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; margin: 0; }
+      .wrap { max-width: 900px; margin: 0 auto; padding: 32px 20px 80px; }
+      h1 { font-size: 28px; margin: 0 0 16px; }
+      h2 { font-size: 22px; margin: 24px 0 12px; }
+      h3 { font-size: 18px; margin: 18px 0 8px; }
+      p { margin: 10px 0; color: var(--text); }
+      code, pre { background: #0b1220; border: 1px solid var(--border); color: #d1d5db; border-radius: 6px; }
+      code { padding: 1px 6px; }
+      pre { padding: 12px; overflow: auto; }
+      .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+      .muted { color: var(--muted); }
+      ul { padding-left: 18px; }
+      li { margin: 6px 0; }
+      .toc a { color: var(--text); text-decoration: none; }
+      .toc a:hover { color: var(--accent); }
+      .kbd { background:#111827; border:1px solid #374151; border-bottom-width:2px; border-radius:6px; padding:1px 6px; font-size: 12px; }
+      @media print {
+        body { background: #fff; color: #000; }
+        .panel { background: #fff; border-color: #ccc; }
+        a { color: #000 !important; text-decoration: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Automations Page — Conversation & Implementation Guide</h1>
+      <p class="muted">This document captures the discussion and final behavior for the Automations page, focusing on “Activate Scene”, MQTT integration, and UX details. It is suitable for printing to PDF (File → Print → Save as PDF).</p>
+
+      <div class="panel toc">
+        <h3>Contents</h3>
+        <ul>
+          <li><a href="#overview">Overview</a></li>
+          <li><a href="#scenes">Scenes: Concept & UX</a></li>
+          <li><a href="#impl">Implementation Details</a></li>
+          <li><a href="#editor">Scenes Editor</a></li>
+          <li><a href="#mqtt">MQTT Contract</a></li>
+          <li><a href="#offline">Offline Handling & Toasters</a></li>
+          <li><a href="#defaults">Default Scene Behaviors</a></li>
+          <li><a href="#rules">Rule Builder & Future Runner</a></li>
+          <li><a href="#customize">Customization & Extensions</a></li>
+          <li><a href="#verify">Verification Checklist</a></li>
+          <li><a href="#changelog">Changelog of Changes</a></li>
+          <li><a href="#refs">Code References</a></li>
+        </ul>
+      </div>
+
+      <h2 id="overview">Overview</h2>
+      <p>We clarified and implemented the meaning of “Activate Scene” on the Automations page. A scene applies a batch of device ON/OFF states instantly via MQTT, with optimistic UI updates and clear feedback. We also added resilient UX for offline scenarios.</p>
+
+      <h2 id="scenes">Scenes: Concept & UX</h2>
+      <ul>
+        <li>Quick Scenes are one-tap presets that adjust multiple devices at once.</li>
+        <li>Typical use cases: Away Mode, Sleep Mode, Workday, Weekend.</li>
+        <li>On tap, the app computes target states and sends commands per device.</li>
+        <li>UI updates optimistically to reflect state changes immediately.</li>
+        <li>A toast summarizes the result (how many turned on/off).</li>
+      </ul>
+
+      <h2 id="impl">Implementation Details</h2>
+      <div class="panel">
+        <h3>Core Logic</h3>
+        <ul>
+          <li>Scene target computation picks desired ON/OFF for each device based on scene ID.</li>
+          <li>Optimistic update uses the energy context’s <code>updateDevice</code>.</li>
+          <li>Commands publish to MQTT using <code>mqttService.publish</code>.</li>
+        </ul>
+
+        <h3>Optimistic Update</h3>
+        <ul>
+          <li>When turning OFF a device, watts are set to a small idle value until the next reading.</li>
+          <li>This keeps the UI responsive even if readings are momentarily delayed.</li>
+        </ul>
+
+        <h3>Safety</h3>
+        <ul>
+          <li>When disconnected, a toast appears with a <span class="kbd">Reconnect</span> action to open Settings.</li>
+          <li>No commands are sent while disconnected.</li>
+        </ul>
+      </div>
+
+      <h2 id="editor">Scenes Editor</h2>
+      <div class="panel">
+        <h3>Purpose</h3>
+        <p>Create and maintain custom scenes that persist locally and can be activated from the Automations page.</p>
+
+        <h3>Storage</h3>
+        <ul>
+          <li>Custom scenes persist in <code>localStorage</code> under key <code>"scenes"</code>.</li>
+          <li>Shape: <code>{ id: string, name: string, icon: string, actions: { deviceId: string; turnOn: boolean }[] }</code></li>
+        </ul>
+
+        <h3>Editor UI</h3>
+        <ul>
+          <li><strong>Add Scene</strong>: opens an editor with fields for <em>Name</em>, <em>Icon</em>, and a per‑device ON/OFF matrix.</li>
+          <li><strong>Edit</strong>: loads the scene and merges current devices; new devices appear with their current ON/OFF defaults.</li>
+          <li><strong>Save</strong>: updates or inserts the scene and writes to <code>localStorage</code>.</li>
+          <li><strong>Delete</strong>: removes the scene from <code>localStorage</code>.</li>
+        </ul>
+
+        <h3>Activation Order</h3>
+        <ul>
+          <li>If a scene has explicit <code>actions</code>, those are used.</li>
+          <li>Otherwise, the built‑in logic computes targets (see “Default Scene Behaviors”).</li>
+        </ul>
+      </div>
+
+      <h2 id="mqtt">MQTT Contract</h2>
+      <ul>
+        <li>Command topic: <code>home/&lt;homeId&gt;/cmd/&lt;deviceId&gt;/set</code></li>
+        <li>Payload: <code>{ on: boolean }</code></li>
+        <li>The simulator and real devices are expected to respond by adjusting power output; the UI subscribes to power/energy topics to reflect changes.</li>
+      </ul>
+
+      <h2 id="offline">Offline Handling & Toasters</h2>
+      <ul>
+        <li>If MQTT is disconnected, tapping a scene shows a toast with a “Reconnect” action.</li>
+        <li>Toasts render globally via the app layout, so feedback is always visible.</li>
+      </ul>
+
+      <h2 id="defaults">Default Scene Behaviors</h2>
+      <p>By default, scenes apply conservative, predictable behavior using an “essential device” heuristic (e.g., refrigerator stays on).</p>
+      <ul>
+        <li><strong>Away</strong>, <strong>Sleep</strong>, <strong>Workday</strong>: keep essential devices ON, turn others OFF.</li>
+        <li><strong>Weekend</strong>: keep essential devices ON, leave other devices as-is.</li>
+      </ul>
+      <p>The heuristic considers device name/type strings containing “fridge” or “refrigerator” as essential. This is easy to refine or replace with tags.</p>
+
+      <h2 id="rules">Rule Builder & Future Runner</h2>
+      <ul>
+        <li>The UI lets users create rules (IF power &gt; threshold for minutes THEN action).</li>
+        <li>Rules are persisted in <code>localStorage</code>; a rule engine can later evaluate conditions and call <em>Activate Scene</em>.</li>
+        <li>Current actions include: notify, turnOff, activateScene (scene picker is a good next step).</li>
+      </ul>
+
+      <h2 id="customize">Customization & Extensions</h2>
+      <ul>
+        <li><strong>Scene Editor</strong>: let users define per-scene device lists (persist locally or server-side).</li>
+        <li><strong>Rule Runner</strong>: periodic evaluation of conditions with de-bounce and last-triggered timestamps.</li>
+        <li><strong>Schedules</strong>: cron-like times for scene activation (e.g., Night mode at 23:00).</li>
+        <li><strong>Tags</strong>: mark devices “essential”, “lighting”, etc., and build scenes by tag.</li>
+        <li><strong>Backend API</strong>: store scenes/rules in DB and enforce auth/ACL.</li>
+      </ul>\n      <h2 id="runner">Rule Runner</h2>\n      <div class="panel">\n        <h3>Behavior</h3>\n        <ul>\n          <li>Evaluates rules every 5s using current device watts and lastSeen.</li>\n          <li>Condition: power exceeds <em>thresholdW</em> continuously for <em>minutes</em>.</li>\n          <li>Triggers once per exceed event (resets when power drops below threshold).</li>\n        </ul>\n        <h3>Actions</h3>\n        <ul>\n          <li><strong>notify</strong>: Shows a toast describing the trigger.</li>\n          <li><strong>turnOff</strong>: Publishes <code>{ on: false }</code> to the device command topic and updates UI.</li>\n          <li><strong>activateScene</strong>: Uses selected custom scene if present; otherwise built-in defaults.</li>\n        </ul>\n        <h3>Persistence</h3>\n        <ul>\n          <li>Updates <code>lastTriggered</code> on the matching rule; persists back to <code>localStorage("rules")</code>.</li>\n        </ul>\n      </div>\n\n      <h2 id="verify">Verification Checklist</h2>
+      <ul>
+        <li>Tap each Quick Scene → devices update immediately; toast shows counts.</li>
+        <li>Toggle MQTT offline → scene tap shows reconnect toast; no commands sent.</li>
+        <li>Re-enable MQTT → scene tap publishes to expected topics with correct payloads.</li>
+        <li>Simulator responds by changing power, UI shows updated watts and states.</li>
+      </ul>
+
+      <h2 id="changelog">Changelog of Changes</h2>
+      <ul>
+        <li>Implemented scene activation with MQTT publishing, optimistic UI, and offline toasts.</li>
+        <li>Defined default behaviors per scene with an essential device heuristic.</li>
+        <li>Added persistent <strong>Scenes Editor</strong> with localStorage storage and activation from UI.</li>
+        <li>Global toast plumbing added to the layout.</li>
+      </ul>
+
+      <h2 id="refs">Code References</h2>
+      <ul>
+        <li><code>src/pages/Automations.tsx</code> — Scene activation logic, MQTT publishes, toasts, <em>Scenes Editor</em>.</li>
+        <li><code>src/services/mqttService.ts</code> - MQTT client, publish helpers.</li>
+        <li><code>src/components/AppLayout.tsx</code> - Global Toaster renderer.</li>
+        <li><code>src/contexts/EnergyContext.tsx</code> - Device state management and updates.</li>
+      </ul>
+
+      <hr style="border:0;border-top:1px solid var(--border);margin:28px 0" />
+      <p class="muted">Print this page to PDF (File → Print → Save as PDF). For any refinements (scene editor, rule runner), see “Customization & Extensions”.</p>
+    </div>
+  </body>
+  </html>
+

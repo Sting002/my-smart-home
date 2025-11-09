@@ -99,12 +99,42 @@ export const Settings: React.FC = () => {
   );
 
   // ✅ Used by “Clear All Data”
-  const onResetAll = useCallback(() => {
+  const onResetAll = useCallback(async () => {
     const confirmTxt = prompt('Type "RESET" to clear all local data (devices, settings).');
     if (confirmTxt !== "RESET") return;
+
+    try {
+      // Attempt to clear retained simulator readings so UI doesn't repopulate immediately
+      if (!mqttService.isConnected()) {
+        // Try a quick connect using the current broker URL to clear retained messages
+        const url = localStorage.getItem("brokerUrl") || brokerUrl;
+        if (url) {
+          try {
+            await mqttService.connectAndWait(url, 2500, { keepalive: 15, reconnectPeriod: 500 });
+          } catch {
+            // ignore connect failure; proceed to clear local data only
+          }
+        }
+      }
+      if (mqttService.isConnected()) {
+        devices.forEach((d: { id: string }) => {
+          const powerTopic = `home/${homeId}/sensor/${d.id}/power`;
+          const energyTopic = `home/${homeId}/sensor/${d.id}/energy`;
+          // Per MQTT spec: zero-length retained payload clears retained message
+          mqttService.publishRaw(powerTopic, "", { retain: true });
+          mqttService.publishRaw(energyTopic, "", { retain: true });
+        });
+        // Close the connection after clearing
+        mqttService.disconnect();
+      }
+    } catch (e) {
+      // non-fatal – proceed to clear local data
+      console.warn("Failed to clear retained topics:", e);
+    }
+
     localStorage.clear();
     window.location.reload();
-  }, []);
+  }, [devices, homeId, brokerUrl]);
 
   return (
     <div className="space-y-6">

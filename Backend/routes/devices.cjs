@@ -53,4 +53,14 @@ router.post("/", requireAuth, (req, res) => {
   );
 });
 
+/** DELETE /api/devices/:id */
+router.delete("/:id", requireAuth, (req, res) => {
+  const id = req.params.id;
+  if (!id) return res.status(400).json({ error: "device id required" });
+  db.run(`DELETE FROM devices WHERE id = ?`, [id], function (err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ ok: true, deleted: this.changes || 0 });
+  });
+});
+
 module.exports = router;

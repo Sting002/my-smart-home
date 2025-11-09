@@ -3,10 +3,12 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useEnergy } from "../contexts/EnergyContext";
 import { mqttService, PowerReading } from "../services/mqttService";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { toast } from "@/hooks/use-toast";
+import { removeDevice as apiRemoveDevice } from "@/api/devices";
 
 export const DeviceDetail: React.FC = () => {
   const { deviceId } = useParams<{ deviceId: string }>();
-  const { devices, updateDevice, homeId, toggleDevice } = useEnergy();
+  const { devices, updateDevice, homeId, toggleDevice, removeDevice } = useEnergy();
   const navigate = useNavigate();
   const device = devices.find(d => d.id === deviceId);
 
@@ -54,6 +56,35 @@ export const DeviceDetail: React.FC = () => {
     },
     [device, updateDevice]
   );
+
+  const onDelete = useCallback(async () => {
+    if (!device) return;
+    const ok = window.confirm(`Delete device "${device.name}" (${device.id})? This cannot be undone.`);
+    if (!ok) return;
+    try {
+      // Try backend delete (non-fatal if unauthorized)
+      try {
+        await apiRemoveDevice(device.id);
+      } catch {}
+
+      // Clear retained MQTT readings (if connected)
+      try {
+        if (mqttService.isConnected()) {
+          const powerTopic = `home/${homeId}/sensor/${device.id}/power`;
+          const energyTopic = `home/${homeId}/sensor/${device.id}/energy`;
+          mqttService.publishRaw(powerTopic, "", { retain: true });
+          mqttService.publishRaw(energyTopic, "", { retain: true });
+        }
+      } catch {}
+
+      // Remove locally and navigate away
+      removeDevice(device.id);
+      toast({ title: "Device deleted", description: `${device.name} removed` });
+      navigate("/devices", { replace: true });
+    } catch (e) {
+      toast({ title: "Failed to delete", description: `Could not delete ${device.name}` });
+    }
+  }, [device, homeId, navigate, removeDevice]);
 
   if (!device) {
     return (
@@ -143,6 +174,16 @@ export const DeviceDetail: React.FC = () => {
           </div>
           {saving && <div className="text-xs text-gray-400">Saving…</div>}
         </div>
+      </div>
+
+      <div className="bg-gray-800 rounded-xl p-6">
+        <h2 className="text-white font-semibold mb-4">Danger Zone</h2>
+        <button
+          onClick={onDelete}
+          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold"
+        >
+          Delete Device
+        </button>
       </div>
     </div>
   );
