@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useEnergy } from "../contexts/EnergyContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { mqttService } from "@/services/mqttService";
+// remove theme provider usage
 
 type ExportShape = {
   homeId: string;
@@ -14,6 +15,7 @@ type ExportShape = {
 
 export const Settings: React.FC = () => {
   const { homeId, setHomeId, currency, setCurrency, tariff, setTariff, devices } = useEnergy();
+  // theme removed
 
   // ✅ In use below (MQTT section + Save button)
   const [brokerUrl, setBrokerUrl] = useState(
@@ -158,7 +160,7 @@ export const Settings: React.FC = () => {
               type="text"
               value={homeId}
               onChange={(e) => setHomeId(e.target.value)}
-              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1 "
             />
           </div>
           <div>
@@ -170,7 +172,7 @@ export const Settings: React.FC = () => {
               name="currency"
               value={currency}
               onChange={(e) => setCurrency(e.target.value)}
-              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1 "
             >
               <option value="USD">USD ($)</option>
               <option value="EUR">EUR (€)</option>
@@ -191,7 +193,7 @@ export const Settings: React.FC = () => {
               step="0.01"
               value={tariff}
               onChange={(e) => setTariff(parseFloat(e.target.value))}
-              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1 "
             />
           </div>
         </div>
@@ -212,7 +214,7 @@ export const Settings: React.FC = () => {
               value={brokerUrl}
               onChange={(e) => setBrokerUrl(e.target.value)}
               placeholder="ws://localhost:9001/mqtt"
-              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1 "
             />
             <p className="text-xs text-gray-500 mt-1">
               Example: <code>ws://192.168.1.100:9001/mqtt</code> or{" "}
@@ -282,3 +284,5 @@ export const Settings: React.FC = () => {
 };
 
 export default Settings;
+
+

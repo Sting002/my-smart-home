@@ -260,7 +260,7 @@ export const Automations: React.FC = () => {
         </div>
 
         {showSceneEditor && (
-          <div className="bg-gray-900 rounded-lg p-4 mb-4 border border-gray-700">
+          <div className="bg-background rounded-lg p-4 mb-4 border border-gray-700">
             <h3 className="text-white font-semibold mb-3">{editingSceneId ? "Edit Scene" : "Create Scene"}</h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="sm:col-span-2">
@@ -347,7 +347,7 @@ export const Automations: React.FC = () => {
         ) : (
           <div className="grid grid-cols-2 gap-4">
             {customScenes.map((scene) => (
-              <div key={scene.id} className="bg-gray-900 border border-gray-700 rounded-xl p-4">
+              <div key={scene.id} className="bg-background border border-gray-700 rounded-xl p-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="text-2xl">{scene.icon}</div>
@@ -387,7 +387,7 @@ export const Automations: React.FC = () => {
         </div>
 
         {showBuilder && (
-          <div className="bg-gray-900 rounded-lg p-4 mb-4 border border-gray-700">
+          <div className="bg-background rounded-lg p-4 mb-4 border border-gray-700">
             <h3 className="text-white font-semibold mb-3">Create Rule</h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
@@ -509,9 +509,9 @@ export const Automations: React.FC = () => {
               return (
                 <div
                   key={rule.id}
-                  className="flex items-center justify-between bg-gray-900 rounded-lg p-3 border border-gray-700"
+                  className="flex items-center justify-between bg-background rounded-lg p-3 border border-gray-700"
                 >
-                  <div className="text-gray-300 text-sm">
+                  <div className="text-white/90 text-sm">
                     <span className="font-semibold">{device?.name ?? rule.deviceId}</span>{" "}
                     if &gt; {rule.thresholdW}W for {rule.minutes} min → {rule.action}
                     {sceneName ? `: ${sceneName}` : ""}
@@ -538,4 +538,6 @@ export const Automations: React.FC = () => {
 };
 
 export default Automations;
+
+
 

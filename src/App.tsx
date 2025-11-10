@@ -23,7 +23,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Suspense fallback={<div className="text-gray-200 p-4">Loading…</div>}>
+        <Suspense fallback={<div className="text-gray-200 p-4">Loading.</div>}>
           <Routes>
             {/* Public */}
             <Route element={<PublicRoute />}>

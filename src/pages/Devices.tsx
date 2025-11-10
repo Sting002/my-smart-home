@@ -26,7 +26,7 @@ export const Devices: React.FC = () => {
         <h1 className="text-2xl font-bold text-white">Devices</h1>
         <button
           onClick={() => navigate("/devices/add")}
-          className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-semibold text-sm"
+          className="bg-green-500 hover:bg-green-600 text-foreground px-4 py-2 rounded-lg font-semibold text-sm"
         >
           + Add Device
         </button>

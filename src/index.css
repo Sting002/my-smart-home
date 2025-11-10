@@ -101,6 +101,17 @@
   }
 }
 
+.reduce-motion-note{}
+
+/* Respect user motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 .markdown-editor {
   @apply font-mono text-base leading-relaxed;
 }

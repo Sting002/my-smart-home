@@ -9,7 +9,8 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "mqtt:clear": "node scripts/clear-retained.cjs --broker mqtt://localhost:1883 --home home1 --from-backend http://localhost:4000"
+    "mqtt:clear": "node scripts/clear-retained.cjs --broker mqtt://localhost:1883 --home home1 --from-backend http://localhost:4000",
+    "export:ui-review": "node scripts/export-pdf.cjs --in docs/ui-review.html --out docs/ui-review.pdf"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

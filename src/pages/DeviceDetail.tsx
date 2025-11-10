@@ -14,6 +14,14 @@ export const DeviceDetail: React.FC = () => {
 
   const [powerHistory, setPowerHistory] = useState<PowerReading[]>([]);
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    room: "",
+    type: "default",
+    thresholdW: 1000,
+    autoOffMins: 0,
+  });
 
   useEffect(() => {
     if (!device || !deviceId) return;
@@ -30,6 +38,18 @@ export const DeviceDetail: React.FC = () => {
       mqttService.unsubscribe(`home/${homeId}/sensor/${deviceId}/power`, callback);
     };
   }, [device, deviceId, homeId]);
+
+  // Seed edit form when device changes
+  useEffect(() => {
+    if (!device) return;
+    setEditForm({
+      name: device.name,
+      room: device.room,
+      type: device.type || "default",
+      thresholdW: device.thresholdW,
+      autoOffMins: device.autoOffMins,
+    });
+  }, [device]);
 
   const isOnline = useMemo(() => {
     if (!device) return false;
@@ -56,6 +76,32 @@ export const DeviceDetail: React.FC = () => {
     },
     [device, updateDevice]
   );
+
+  const onEditChange = useCallback(
+    (
+      e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+    ) => {
+      const { name, value } = e.target;
+      setEditForm((prev) => ({
+        ...prev,
+        [name]: name === "thresholdW" || name === "autoOffMins" ? Number(value) : value,
+      }));
+    },
+    []
+  );
+
+  const saveEdits = useCallback(() => {
+    if (!device) return;
+    updateDevice(device.id, {
+      name: editForm.name,
+      room: editForm.room,
+      type: editForm.type as typeof device.type,
+      thresholdW: Number(editForm.thresholdW) || 0,
+      autoOffMins: Number(editForm.autoOffMins) || 0,
+    });
+    setEditing(false);
+    toast({ title: "Device updated", description: `${editForm.name} saved` });
+  }, [device, editForm, updateDevice]);
 
   const onDelete = useCallback(async () => {
     if (!device) return;
@@ -112,14 +158,23 @@ export const DeviceDetail: React.FC = () => {
               {isOnline ? "Online" : "Offline"}
             </div>
           </div>
-          <button
-            onClick={() => toggleDevice(device.id)}
-            className={`px-6 py-2 rounded-lg font-semibold ${
-              device.isOn ? "bg-green-500 text-white" : "bg-gray-700 text-gray-300"
-            }`}
-          >
-            {device.isOn ? "ON" : "OFF"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setEditing((e) => !e)}
+              className="px-4 py-2 rounded-lg font-semibold bg-blue-600 hover:bg-blue-700 text-white"
+              aria-pressed={editing}
+            >
+              {editing ? "Close Edit" : "Edit"}
+            </button>
+            <button
+              onClick={() => toggleDevice(device.id)}
+              className={`px-6 py-2 rounded-lg font-semibold ${
+                device.isOn ? "bg-green-500 text-white" : "bg-gray-700 text-gray-300"
+              }`}
+            >
+              {device.isOn ? "ON" : "OFF"}
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -133,6 +188,84 @@ export const DeviceDetail: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {editing && (
+        <div className="bg-gray-800 rounded-xl p-6">
+          <h2 className="text-white font-semibold mb-4">Edit Details</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="name" className="text-gray-400 text-sm">Name</label>
+              <input
+                id="name"
+                name="name"
+                type="text"
+                value={editForm.name}
+                onChange={onEditChange}
+                className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+              />
+            </div>
+            <div>
+              <label htmlFor="room" className="text-gray-400 text-sm">Room</label>
+              <input
+                id="room"
+                name="room"
+                type="text"
+                value={editForm.room}
+                onChange={onEditChange}
+                className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+              />
+            </div>
+            <div>
+              <label htmlFor="type" className="text-gray-400 text-sm">Type</label>
+              <select
+                id="type"
+                name="type"
+                value={editForm.type}
+                onChange={onEditChange}
+                className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+              >
+                <option value="default">Other</option>
+                <option value="fridge">Refrigerator</option>
+                <option value="washer">Washing Machine</option>
+                <option value="ac">Air Conditioner</option>
+                <option value="heater">Heater</option>
+                <option value="water">Water Heater</option>
+                <option value="microwave">Microwave</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="thresholdW" className="text-gray-400 text-sm">Threshold (W)</label>
+              <input
+                id="thresholdW"
+                name="thresholdW"
+                type="number"
+                value={editForm.thresholdW}
+                onChange={onEditChange}
+                className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+              />
+            </div>
+            <div>
+              <label htmlFor="autoOffMins" className="text-gray-400 text-sm">Auto-off (minutes)</label>
+              <input
+                id="autoOffMins"
+                name="autoOffMins"
+                type="number"
+                value={editForm.autoOffMins}
+                onChange={onEditChange}
+                className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 mt-4">
+            <button onClick={saveEdits} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold">
+              Save
+            </button>
+            <button onClick={() => setEditing(false)} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="bg-gray-800 rounded-xl p-6">
         <h2 className="text-white font-semibold mb-4">Power History (Last ~2h)</h2>
@@ -188,4 +321,6 @@ export const DeviceDetail: React.FC = () => {
     </div>
   );
 };
+
+
 

@@ -25,10 +25,22 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
     return icons[type] || icons.default;
   };
 
+  const handleKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!onClick) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onClick();
+    }
+  };
+
   return (
     <div
       className="bg-gray-800 rounded-xl p-4 hover:bg-gray-750 transition-all cursor-pointer border border-gray-700"
       onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={handleKey}
+      aria-label={`Open details for ${device.name}`}
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
@@ -46,6 +58,8 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
           className={`w-12 h-6 rounded-full transition-all ${
             device.isOn ? "bg-green-500" : "bg-gray-600"
           }`}
+          aria-pressed={device.isOn}
+          aria-label={`Toggle ${device.name}`}
         >
           <div
             className={`w-5 h-5 bg-white rounded-full transition-transform ${

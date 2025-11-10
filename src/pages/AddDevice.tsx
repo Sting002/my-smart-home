@@ -135,7 +135,7 @@ const AddDevice: React.FC = () => {
               onChange={onChange}
               placeholder="e.g., device_001"
               aria-invalid={!!errors.id}
-              className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg mt-1"
+              className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg mt-1 "
               autoComplete="off"
             />
             <p className="text-xs text-gray-500 mt-1">
@@ -159,7 +159,7 @@ const AddDevice: React.FC = () => {
               onChange={onChange}
               placeholder="e.g., Living Room AC"
               aria-invalid={!!errors.name}
-              className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg mt-1"
+              className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg mt-1 "
               autoComplete="name"
             />
             {errors.name && (
@@ -180,7 +180,7 @@ const AddDevice: React.FC = () => {
               onChange={onChange}
               placeholder="e.g., Living Room"
               aria-invalid={!!errors.room}
-              className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg mt-1"
+              className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg mt-1 "
               autoComplete="section-room"
             />
             {errors.room && (
@@ -204,7 +204,7 @@ const AddDevice: React.FC = () => {
                   className={`p-3 rounded-lg border-2 transition-all ${
                     formData.type === type.value
                       ? "border-green-500 bg-green-500/10"
-                      : "border-gray-700 bg-gray-700"
+                      : "border-border bg-muted"
                   }`}
                 >
                   <div className="text-2xl mb-1">{type.icon}</div>
@@ -228,7 +228,7 @@ const AddDevice: React.FC = () => {
               value={formData.thresholdW}
               onChange={onChange}
               aria-invalid={!!errors.thresholdW}
-              className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg mt-1"
+              className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg mt-1 "
             />
             {errors.thresholdW && (
               <p className="text-xs text-red-400 mt-1">
@@ -248,7 +248,7 @@ const AddDevice: React.FC = () => {
               value={formData.autoOffMins}
               onChange={onChange}
               aria-invalid={!!errors.autoOffMins}
-              className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg mt-1"
+              className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg mt-1 "
             />
             {errors.autoOffMins && (
               <p className="text-xs text-red-400 mt-1">
@@ -271,4 +271,6 @@ const AddDevice: React.FC = () => {
 };
 
 export default AddDevice;
+
+
 

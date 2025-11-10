@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UI Components Review</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji'; margin: 2rem; line-height: 1.5; }
+      h1, h2 { margin-top: 1.5rem; }
+      code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
+      .file { margin-top: 1rem; }
+      .file h3 { margin: .75rem 0 .25rem; }
+      ul { margin: .25rem 0 .75rem 1.25rem; }
+      .muted { color: #666; }
+      @media print { a[href]::after { content: " (" attr(href) ")"; font-size: .9em; } }
+    </style>
+  </head>
+  <body>
+    <h1>UI Components Review (src/components/ui)</h1>
+
+    <p>This report summarizes a per-file review of the UI components, suggestions, and implemented changes.</p>
+
+    <h2>Key Cross-Cutting Suggestions</h2>
+    <ul>
+      <li>Standardize on shadcn toasts and remove alternative toast systems (done).</li>
+      <li>Ensure icon-only triggers in consuming code have <code>aria-label</code>.</li>
+      <li>Add concise TSDoc comments to complex components (chart, sidebar).</li>
+      <li>Optionally honor <code>prefers-reduced-motion</code> for animations.</li>
+    </ul>
+
+    <h2>Per-File Findings</h2>
+    <p class="muted">See docs/ui-review.md for full details. Highlights below:</p>
+    <ul>
+      <li><strong>chart.tsx</strong>: Theme-aware CSS vars; displayName set to ChartContainer; consider memoizing heavy tooltip content.</li>
+      <li><strong>sidebar.tsx</strong>: Cookie-persisted state; now also restored on mount in uncontrolled mode.</li>
+      <li><strong>alert-dialog.tsx, dialog.tsx</strong>: Solid Radix patterns; ensure descriptive labels in consumers.</li>
+      <li><strong>command.tsx</strong>: Consider virtualization for very large lists.</li>
+      <li><strong>forms/select/inputs</strong>: Ensure label associations and aria-valuetext in consumers where helpful.</li>
+    </ul>
+
+    <h2>Implemented Changes</h2>
+    <ul>
+      <li>Removed unused <code>src/components/ui/sonner.tsx</code> (standardize on shadcn toasts).</li>
+      <li>Set <code>ChartContainer.displayName</code> to <code>"ChartContainer"</code>.</li>
+      <li>Sidebar now restores open/collapsed state from cookie on mount when uncontrolled.</li>
+    </ul>
+
+    <h2>Next Steps</h2>
+    <ul>
+      <li>Add short TSDoc headers to chart/sidebar.</li>
+      <li>Review icon-only buttons in app code for <code>aria-label</code>s.</li>
+      <li>Consider <code>prefers-reduced-motion</code> in global CSS.</li>
+    </ul>
+  </body>
+  </html>
+

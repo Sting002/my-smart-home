@@ -3,6 +3,17 @@ import * as RechartsPrimitive from "recharts"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * ChartContainer and utilities for Recharts with theme-aware colors.
+ *
+ * - Wrap your Recharts chart with <ChartContainer config={...}> to expose a
+ *   ChartContext and inject CSS variables for series colors.
+ * - ChartConfig allows mapping each series key to a label/icon and either a
+ *   static color or theme map ({ light, dark }).
+ * - Includes <ChartTooltipContent> and <ChartLegendContent> helpers that read
+ *   from the ChartContext to render consistent labels/icons and colors.
+ */
+
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const
 
@@ -63,7 +74,7 @@ const ChartContainer = React.forwardRef<
     </ChartContext.Provider>
   )
 })
-ChartContainer.displayName = "Chart"
+ChartContainer.displayName = "ChartContainer"
 
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
   const colorConfig = Object.entries(config).filter(

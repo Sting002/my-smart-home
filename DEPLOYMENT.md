@@ -1,162 +1,157 @@
 # Deployment Guide
 
+This project is a Vite + React SPA that talks to an MQTT broker over WebSockets and optionally to a REST API under `/api`. Deploy it as static files behind a reverse proxy, or on a static host with an external WSS broker.
+
 ## Local Development
 
 ```bash
 # Install dependencies
 npm install
 
-# Start development server
+# Start dev server (Vite on http://localhost:8080)
 npm run dev
 
 # Build for production
 npm run build
 
-# Preview production build
+# Preview the production build locally
 npm run preview
 ```
 
+## Environment Variables
+
+These are read at build time by Vite:
+
+- `VITE_API_BASE` — Base URL for API requests (default `/api`; in dev, proxied to `http://localhost:4000`).
+- `VITE_MQTT_BROKER_URL` — Default MQTT WS URL if none saved (e.g., `wss://your-domain.com/mqtt` or `ws://localhost:9001/mqtt`).
+- `VITE_MAX_CHART_POINTS` — Max in-memory points for power history (default 120).
+- `VITE_DEBUG_MQTT` — Set to `true` for verbose MQTT logs.
+
+Create `.env` or `.env.production` as needed, for example:
+
+```env
+VITE_API_BASE=/api
+VITE_MQTT_BROKER_URL=wss://your-domain.com/mqtt
+VITE_MAX_CHART_POINTS=120
+VITE_DEBUG_MQTT=false
+```
+
+Note: Do not modify source files to inject env values; Vite automatically exposes `import.meta.env.*` at build time.
+
 ## Production Deployment
 
-### Option 1: Static Hosting (Netlify/Vercel)
+### Option 1: Static Hosting (Netlify, Vercel, S3+CloudFront, etc.)
 
-1. **Build the app**:
+- Build locally or in CI: `npm run build` -> uploads `dist/`.
+- Configure SPA fallback to `index.html` (history API rewrite) so client routes work:
+  - Netlify: add a `_redirects` file: `/* /index.html 200`.
+  - Vercel: SPA works when deployed as static; custom rewrites only needed if also proxying `/api`.
+- MQTT access:
+  - Use an external WSS broker (recommended). Set `VITE_MQTT_BROKER_URL` to `wss://.../mqtt`.
+  - Static hosts generally cannot proxy raw WebSockets to Mosquitto; prefer direct WSS.
+- Optional API:
+  - If your API runs on another domain, set `VITE_API_BASE` to its absolute URL and enable CORS on the API, or front it with a reverse proxy under the same origin.
+
+### Option 2: Self‑Hosted with Nginx
+
+1) Build and copy files
+
 ```bash
 npm run build
+sudo mkdir -p /var/www/energy-monitor
+sudo cp -r dist/* /var/www/energy-monitor/
 ```
 
-2. **Deploy to Netlify**:
-```bash
-# Install Netlify CLI
-npm install -g netlify-cli
+2) Nginx site config (SPA + optional API + MQTT WS proxy)
 
-# Deploy
-netlify deploy --prod --dir=dist
-```
+`/etc/nginx/sites-available/energy-monitor`:
 
-3. **Deploy to Vercel**:
-```bash
-# Install Vercel CLI
-npm install -g vercel
-
-# Deploy
-vercel --prod
-```
-
-### Option 2: Self-Hosted (Nginx)
-
-1. **Build the app**:
-```bash
-npm run build
-```
-
-2. **Copy to web server**:
-```bash
-sudo cp -r dist/* /var/www/html/energy-monitor/
-```
-
-3. **Configure Nginx** (`/etc/nginx/sites-available/energy-monitor`):
 ```nginx
 server {
-    listen 80;
-    server_name energy-monitor.local;
-    root /var/www/html/energy-monitor;
-    index index.html;
+  listen 80;
+  server_name energy-monitor.local;
 
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
+  root /var/www/energy-monitor;
+  index index.html;
 
-    # WebSocket proxy for MQTT
-    location /mqtt {
-        proxy_pass http://localhost:9001;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "Upgrade";
-        proxy_set_header Host $host;
-    }
+  # SPA fallback
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+
+  # Optional: proxy API to backend (keeps same-origin, avoids CORS)
+  location /api/ {
+    proxy_pass http://localhost:4000/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+  }
+
+  # WebSocket proxy to Mosquitto WS listener (expects client URL like ws[s]://host/mqtt)
+  location /mqtt {
+    proxy_pass http://localhost:9001/;  # rewrite /mqtt -> /
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+    proxy_read_timeout 600s;
+    proxy_set_header Host $host;
+  }
 }
 ```
 
-4. **Enable and restart**:
+Enable and reload:
+
 ```bash
 sudo ln -s /etc/nginx/sites-available/energy-monitor /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
-## MQTT Broker Setup (Production)
+3) TLS (recommended)
 
-### Mosquitto with SSL/TLS
+- Terminate TLS at Nginx. Use Certbot or your PKI. Then serve app on `https://` and proxy WSS via `wss://host/mqtt`.
 
-1. **Generate certificates**:
-```bash
-# Generate CA key
-openssl genrsa -out ca.key 2048
+## MQTT Broker Setup (Mosquitto)
 
-# Generate CA certificate
-openssl req -new -x509 -days 3650 -key ca.key -out ca.crt
+Minimal WS (no TLS) for local/private networks:
 
-# Generate server key
-openssl genrsa -out server.key 2048
+`/etc/mosquitto/mosquitto.conf`
 
-# Generate server CSR
-openssl req -new -key server.key -out server.csr
-
-# Sign server certificate
-openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 3650
 ```
-
-2. **Configure Mosquitto** (`/etc/mosquitto/mosquitto.conf`):
-```
-# Standard MQTT
 listener 1883
 protocol mqtt
 
-# WebSocket with TLS
+listener 9001
+protocol websockets
+```
+
+TLS + auth (production):
+
+```
+listener 1883
+protocol mqtt
+
 listener 8083
 protocol websockets
 cafile /etc/mosquitto/certs/ca.crt
 certfile /etc/mosquitto/certs/server.crt
 keyfile /etc/mosquitto/certs/server.key
 
-# Authentication
 allow_anonymous false
 password_file /etc/mosquitto/passwd
 ```
 
-3. **Create users**:
-```bash
-sudo mosquitto_passwd -c /etc/mosquitto/passwd admin
-sudo mosquitto_passwd /etc/mosquitto/passwd esp32_device
-```
+Create users and restart:
 
-4. **Restart broker**:
 ```bash
+sudo mosquitto_passwd -c /etc/mosquitto/passwd dashboard
 sudo systemctl restart mosquitto
 ```
 
-## Environment Configuration
-
-Create `.env` file for production:
-
-```env
-VITE_MQTT_BROKER_URL=wss://your-domain.com:8083
-VITE_DEFAULT_HOME_ID=home1
-VITE_DEFAULT_CURRENCY=USD
-VITE_DEFAULT_TARIFF=0.12
-```
-
-Update `src/pages/Onboarding.tsx` to use env variables:
-```typescript
-const [brokerUrl, setBrokerUrl] = useState(
-  import.meta.env.VITE_MQTT_BROKER_URL || 'ws://localhost:9001'
-);
-```
+Tip: The frontend default path is `/mqtt` (behind Nginx). If exposing Mosquitto directly, set `VITE_MQTT_BROKER_URL` to your `ws(s)://host:port/mqtt` and route accordingly.
 
 ## Docker Deployment
 
-Create `Dockerfile`:
+Dockerfile (multi-stage build):
+
 ```dockerfile
 FROM node:18-alpine AS builder
 WORKDIR /app
@@ -167,15 +162,24 @@ RUN npm run build
 
 FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Simple SPA config with MQTT WS proxy at /mqtt (adjust upstreams for your infra)
+RUN printf '%s\n' \
+  'server {' \
+  '  listen 80;' \
+  '  root /usr/share/nginx/html;' \
+  '  index index.html;' \
+  '  location / { try_files $uri $uri/ /index.html; }' \
+  '  location /mqtt { proxy_pass http://mosquitto:9001/; proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "Upgrade"; proxy_read_timeout 600s; }' \
+  '}' \
+  > /etc/nginx/conf.d/default.conf
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
 ```
 
-Create `docker-compose.yml`:
+Compose (web + Mosquitto with WS):
+
 ```yaml
 version: '3.8'
-
 services:
   web:
     build: .
@@ -183,6 +187,9 @@ services:
       - "3000:80"
     depends_on:
       - mosquitto
+    environment:
+      - VITE_API_BASE=/api
+      - VITE_MQTT_BROKER_URL=ws://localhost:3000/mqtt
 
   mosquitto:
     image: eclipse-mosquitto:2
@@ -190,58 +197,52 @@ services:
       - "1883:1883"
       - "9001:9001"
     volumes:
-      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
-      - mosquitto-data:/mosquitto/data
-      - mosquitto-logs:/mosquitto/log
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosq-data:/mosquitto/data
+      - mosq-log:/mosquitto/log
 
 volumes:
-  mosquitto-data:
-  mosquitto-logs:
+  mosq-data:
+  mosq-log:
 ```
 
-Deploy:
+Example `mosquitto.conf` for compose:
+
+```
+listener 1883
+protocol mqtt
+
+listener 9001
+protocol websockets
+```
+
+Start:
+
 ```bash
-docker-compose up -d
+docker compose up -d --build
 ```
 
-## Security Considerations
+## Operational Tips
 
-1. **Use HTTPS/WSS** in production
-2. **Enable MQTT authentication**
-3. **Implement rate limiting**
-4. **Use environment variables** for sensitive data
-5. **Enable CORS** properly
-6. **Regular security updates**
+- SPA base path: hosting under a sub-path? Build with `vite build --base /energy-monitor/` or set `base` in `vite.config.ts`.
+- Broker retained messages: use the helper to clear retained sensor topics after test data:
+  - `npm run mqtt:clear` or see `scripts/clear-retained.cjs`.
+- Backend proxy: in dev, `vite.config.ts` proxies `/api` to `http://localhost:4000`. In prod, front the API under `/api` via Nginx to avoid CORS.
 
-## Monitoring
+## Security & Monitoring
 
-Set up monitoring for:
-- MQTT broker uptime
-- WebSocket connection health
-- Device last-seen timestamps
-- Error rates in browser console
+- Serve over HTTPS and use WSS to the broker.
+- Enable Mosquitto auth; scope credentials per client/device.
+- Limit retained data and validate payloads on the producer side.
+- Monitor:
+  - Broker uptime and listener ports
+  - WebSocket connection rates and errors
+  - Device last-seen timestamps
+  - Backend `/api` error rates, if used
 
-## Backup Strategy
+## Troubleshooting
 
-Backup these regularly:
-- MQTT broker configuration
-- User credentials
-- Device configurations (localStorage data)
-- Historical energy data (if stored server-side)
-
-## Troubleshooting Production Issues
-
-**WebSocket connection fails**:
-- Check SSL certificates
-- Verify firewall rules
-- Confirm WebSocket proxy configuration
-
-**High latency**:
-- Reduce MQTT message frequency
-- Implement message batching
-- Use QoS 0 for non-critical data
-
-**Memory leaks**:
-- Limit chart data points (max 120)
-- Clear old localStorage entries
-- Implement data pruning in devices
+- WebSocket fails: confirm `wss://` certificate chain, firewall rules, and Nginx `Upgrade` headers. Test via `wscat`.
+- No devices appear: verify topics and `homeId`; subscribe with `mosquitto_sub -h host -t 'home/#' -v`.
+- Charts empty: ensure payloads match schemas and timestamps are in milliseconds.
+- Hosted on static platform: point `VITE_MQTT_BROKER_URL` to an external WSS broker; don’t expect platform to proxy WS to Mosquitto.

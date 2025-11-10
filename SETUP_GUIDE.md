@@ -1,35 +1,42 @@
-# ESP32 Setup Guide for Energy Monitoring
+# ESP32 Setup Guide and App Integration
+
+This guide shows how to wire an ESP32, publish power/energy readings to MQTT, and connect the web app. It reflects the current app behavior (Vite on port 8080, onboarding, MQTT over WebSockets, and topic schemas).
 
 ## Hardware Requirements
 
 - ESP32 development board
 - Current/voltage sensor (INA219, ACS712, or HLW8012)
-- Relay module (optional, for device control)
-- Power supply (5V)
-- Jumper wires
+- Relay module (optional, for device command testing)
+- 5V power supply and jumper wires
 
-## Wiring Diagram
+## Wiring (INA219 example)
 
-### INA219 Sensor
 ```
 ESP32          INA219
---------------------------
-3.3V    --->   VCC
-GND     --->   GND
-GPIO21  --->   SDA
-GPIO22  --->   SCL
+-------------------------
+3.3V   --->    VCC
+GND    --->    GND
+GPIO21 --->    SDA
+GPIO22 --->    SCL
 ```
 
-### Relay Module (Optional)
-```
-ESP32          Relay
---------------------------
-GPIO23  --->   IN
-5V      --->   VCC
-GND     --->   GND
-```
+Relay (optional): `GPIO23 -> IN`, `5V -> VCC`, `GND -> GND`.
+
+## MQTT Topics and Payloads
+
+- Power (sensor -> app): `home/{homeId}/sensor/{deviceId}/power`
+  - `{ watts: number, voltage?: number, current?: number, ts?: number }`
+  - If `ts` is omitted, the app uses its local time. If you send `ts`, use epoch milliseconds.
+- Energy (sensor -> app): `home/{homeId}/sensor/{deviceId}/energy`
+  - `{ wh_total: number, ts?: number }` (app computes kWh today as `wh_total / 1000`)
+- Command (app -> device): `home/{homeId}/cmd/{deviceId}/set`
+  - `{ on: boolean }`
+
+Device is considered ON in the UI when `watts > 5`.
 
 ## ESP32 Firmware (Arduino)
+
+The sketch below publishes power once/second and energy every 10s. It omits `ts` to let the app timestamp readings, avoiding clock sync issues.
 
 ```cpp
 #include <WiFi.h>
@@ -41,8 +48,8 @@ GND     --->   GND
 const char* ssid = "YOUR_WIFI_SSID";
 const char* password = "YOUR_WIFI_PASSWORD";
 
-// MQTT Broker
-const char* mqtt_server = "192.168.1.100";  // Your PC's IP
+// MQTT Broker (TCP 1883 for device)
+const char* mqtt_server = "192.168.1.100";  // Broker IP
 const int mqtt_port = 1883;
 
 // Device config
@@ -54,44 +61,38 @@ PubSubClient client(espClient);
 Adafruit_INA219 ina219;
 
 unsigned long lastPublish = 0;
-float totalWh = 0;
+float totalWh = 0.0f;
 unsigned long lastEnergyUpdate = 0;
 
 void setup() {
   Serial.begin(115200);
-  
-  // Initialize INA219
   if (!ina219.begin()) {
-    Serial.println("Failed to find INA219 chip");
+    Serial.println("INA219 not found");
     while (1) { delay(10); }
   }
-  
-  // Connect to WiFi
+
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
   Serial.println("\nWiFi connected");
-  
-  // Setup MQTT
+
   client.setServer(mqtt_server, mqtt_port);
   client.setCallback(mqttCallback);
 }
 
 void loop() {
-  if (!client.connected()) {
-    reconnect();
-  }
+  if (!client.connected()) reconnect();
   client.loop();
-  
-  // Publish power readings every second
+
+  // Publish power every 1s
   if (millis() - lastPublish > 1000) {
     publishPowerData();
     lastPublish = millis();
   }
-  
-  // Update energy total every 10 seconds
+
+  // Publish cumulative energy every 10s
   if (millis() - lastEnergyUpdate > 10000) {
     publishEnergyData();
     lastEnergyUpdate = millis();
@@ -101,62 +102,51 @@ void loop() {
 void publishPowerData() {
   float voltage = ina219.getBusVoltage_V();
   float current = ina219.getCurrent_mA() / 1000.0;
-  float power = voltage * current;
-  
-  // Accumulate energy (Wh)
-  totalWh += (power * 1.0) / 3600.0;  // 1 second interval
-  
-  char topic[100];
-  sprintf(topic, "home/%s/sensor/%s/power", homeId, deviceId);
-  
-  char payload[200];
-  sprintf(payload, "{\"ts\":%lu,\"watts\":%.2f,\"voltage\":%.2f,\"current\":%.3f}", 
-          millis(), power, voltage, current);
-  
+  float power = voltage * current; // W
+
+  // Integrate energy (Wh): W * seconds / 3600
+  totalWh += (power * 1.0f) / 3600.0f; // 1 second interval
+
+  char topic[96];
+  snprintf(topic, sizeof(topic), "home/%s/sensor/%s/power", homeId, deviceId);
+
+  char payload[160];
+  snprintf(payload, sizeof(payload), "{\"watts\":%.2f,\"voltage\":%.2f,\"current\":%.3f}", power, voltage, current);
   client.publish(topic, payload);
-  Serial.println(payload);
 }
 
 void publishEnergyData() {
-  char topic[100];
-  sprintf(topic, "home/%s/sensor/%s/energy", homeId, deviceId);
-  
-  char payload[100];
-  sprintf(payload, "{\"ts\":%lu,\"wh_total\":%.2f}", millis(), totalWh);
-  
+  char topic[96];
+  snprintf(topic, sizeof(topic), "home/%s/sensor/%s/energy", homeId, deviceId);
+
+  char payload[96];
+  snprintf(payload, sizeof(payload), "{\"wh_total\":%.2f}", totalWh);
   client.publish(topic, payload);
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  // Handle control commands
-  char cmdTopic[100];
-  sprintf(cmdTopic, "home/%s/cmd/%s/set", homeId, deviceId);
-  
+  // Example: {"on": true}
+  char cmdTopic[96];
+  snprintf(cmdTopic, sizeof(cmdTopic), "home/%s/cmd/%s/set", homeId, deviceId);
   if (strcmp(topic, cmdTopic) == 0) {
-    // Parse JSON and control relay
-    // Example: {"on": true}
-    Serial.print("Command received: ");
-    for (int i = 0; i < length; i++) {
-      Serial.print((char)payload[i]);
-    }
+    Serial.print("Command: ");
+    for (unsigned int i = 0; i < length; i++) Serial.print((char)payload[i]);
     Serial.println();
+    // TODO: parse JSON and drive a relay if attached
   }
 }
 
 void reconnect() {
   while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
+    Serial.print("MQTT connect...");
     if (client.connect(deviceId)) {
-      Serial.println("connected");
-      
-      // Subscribe to command topic
-      char cmdTopic[100];
-      sprintf(cmdTopic, "home/%s/cmd/%s/set", homeId, deviceId);
+      Serial.println("ok");
+      char cmdTopic[96];
+      snprintf(cmdTopic, sizeof(cmdTopic), "home/%s/cmd/%s/set", homeId, deviceId);
       client.subscribe(cmdTopic);
     } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" retrying in 5 seconds");
+      Serial.print("rc="); Serial.print(client.state());
+      Serial.println(" retry in 5s");
       delay(5000);
     }
   }
@@ -165,48 +155,50 @@ void reconnect() {
 
 ## Installation Steps
 
-1. **Install Arduino IDE** and ESP32 board support
-2. **Install Libraries**:
-   - PubSubClient (by Nick O'Leary)
-   - Adafruit INA219
-   - WiFi (built-in)
+1. Install Arduino IDE and ESP32 board support.
+2. Install libraries: PubSubClient (Nick O'Leary), Adafruit INA219, Wire.
+3. Configure the sketch: Wi‑Fi credentials, `mqtt_server`, unique `deviceId`, and `homeId`.
+4. Upload to the ESP32 and monitor the serial output.
 
-3. **Configure the code**:
-   - Update WiFi credentials
-   - Set your PC's IP address as mqtt_server
-   - Change deviceId to unique identifier
+## Verify MQTT
 
-4. **Upload to ESP32**
+On the broker host:
 
-5. **Test MQTT Messages**:
 ```bash
-# Subscribe to all topics
+# Subscribe to all home topics
 mosquitto_sub -h localhost -t 'home/#' -v
 
-# You should see:
-# home/home1/sensor/device_001/power {"ts":1234,"watts":150.23,...}
+# Expected (examples):
+# home/home1/sensor/device_001/power {"watts":123.45,"voltage":229.80,"current":0.537}
+# home/home1/sensor/device_001/energy {"wh_total":12.34}
 ```
 
-## Troubleshooting
+To simulate a command from the app (or test without the app):
 
-**ESP32 not connecting to WiFi**
-- Check SSID and password
-- Ensure 2.4GHz WiFi (ESP32 doesn't support 5GHz)
+```bash
+mosquitto_pub -h localhost -t 'home/home1/cmd/device_001/set' -m '{"on":false}'
+```
 
-**No MQTT messages**
-- Verify broker is running: `mosquitto -v`
-- Check firewall allows port 1883
-- Confirm ESP32 and PC are on same network
+## Connect the Web App
 
-**Sensor readings are zero**
-- Check I2C wiring (SDA/SCL)
-- Verify sensor power (3.3V)
-- Try I2C scanner sketch to detect sensor
+- Start the app in dev mode: `npm run dev` and open `http://localhost:8080`.
+- On first run you’ll see onboarding at `/onboarding`.
+  - Enter the broker WebSocket URL. Common values:
+    - Direct Mosquitto WS: `ws://<broker-host>:9001` (path is `/` by default)
+    - Behind Nginx: `ws(s)://<your-domain>/mqtt` (when `/mqtt` proxies to Mosquitto)
+  - Note: The app’s default is `ws://localhost:9001/mqtt`. If your broker exposes WS at root `/`, remove `/mqtt`.
+- After connecting, you’ll land on the Dashboard. Devices appear automatically as they publish.
 
-## Next Steps
+## Tips and Pitfalls
 
-Once data is flowing:
-1. Open the web app (http://localhost:5173)
-2. Complete onboarding with broker URL: `ws://localhost:9001`
-3. Device should auto-appear in Devices tab
-4. View real-time power charts in Device Detail page
+- Timestamps: If you send `ts`, use epoch milliseconds. Otherwise omit `ts` and let the app timestamp.
+- Home ID: Must match on the device and in app Settings (`homeId`).
+- Retained data: To clear retained power/energy topics, use Settings -> Clear All Data or the helper script `npm run mqtt:clear`.
+- WebSockets path: Ensure your WS URL path matches your broker/proxy (root `/` vs `/mqtt`).
+- Thresholds and scenes: Adjust device threshold W and automations in the app to test command flows.
+
+## What’s Next
+
+- Devices tab: add/edit devices; open a device to view live power chart and settings.
+- Automations: test built‑in scenes (Away/Sleep/Workday/Weekend) and custom scenes or rules.
+- Settings: set currency/tariff, change broker URL, export/import data.

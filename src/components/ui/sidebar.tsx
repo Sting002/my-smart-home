@@ -4,6 +4,15 @@ import { VariantProps, cva } from "class-variance-authority"
 import { PanelLeft } from "lucide-react"
 
 import { useIsMobile } from "@/hooks/use-mobile"
+
+/**
+ * Sidebar system
+ *
+ * - <SidebarProvider> supplies layout state, mobile awareness, and a cookie-
+ *   persisted open/collapsed flag. Uncontrolled mode restores from cookie on mount.
+ * - <SidebarTrigger> and <SidebarRail> expose accessible controls to toggle state.
+ * - Composables (Header, Content, Nav, etc.) provide consistent structure.
+ */
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -71,6 +80,23 @@ const SidebarProvider = React.forwardRef<
     // This is the internal state of the sidebar.
     // We use openProp and setOpenProp for control from outside the component.
     const [_open, _setOpen] = React.useState(defaultOpen)
+    // On mount, restore state from cookie if present (uncontrolled mode only)
+    React.useEffect(() => {
+      if (openProp !== undefined) return
+      try {
+        const cookie = document.cookie
+          .split(";")
+          .map((s) => s.trim())
+          .find((s) => s.startsWith(`${SIDEBAR_COOKIE_NAME}=`))
+        if (cookie) {
+          const val = cookie.split("=")[1]
+          if (val === "true" || val === "false") {
+            _setOpen(val === "true")
+          }
+        }
+      } catch {}
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
     const open = openProp ?? _open
     const setOpen = React.useCallback(
       (value: boolean | ((value: boolean) => boolean)) => {

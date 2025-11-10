@@ -39,14 +39,11 @@ brew services restart mosquitto
 ### 3. Run Test Data Simulator
 
 ```bash
-# Install mqtt library
-npm install mqtt
-
-# Run simulator
-node test-simulator.js
+# From the project root (mqtt dependency is already included)
+node test-simulator.cjs --broker mqtt://localhost:1883 --home home1
 ```
 
-You should see:
+You should see logs similar to:
 ```
 ✅ Connected to MQTT broker
 📡 Publishing test data for 4 devices...
@@ -62,11 +59,11 @@ You should see:
 npm run dev
 ```
 
-Open http://localhost:5173
+Open http://localhost:8080
 
-### 5. Complete Onboarding nod
+### 5. Complete Onboarding
 1. Click "Get Started"
-2. Enter broker URL: `ws://localhost:9001`
+2. Enter broker URL: `ws://localhost:9001/mqtt`
 3. Click "Connect"
 
 Devices should appear automatically in the Devices tab!
@@ -75,16 +72,18 @@ Devices should appear automatically in the Devices tab!
 
 ### Publish Test Power Reading
 
+Use epoch milliseconds for `ts` or omit it (the app will timestamp):
+
 ```bash
 mosquitto_pub -h localhost -t 'home/home1/sensor/device_001/power' \
-  -m '{"ts":1234567890,"watts":150.5,"voltage":220,"current":0.68}'
+  -m '{"ts":1697049600000,"watts":150.5,"voltage":220,"current":0.68}'
 ```
 
 ### Publish Test Energy Reading
 
 ```bash
 mosquitto_pub -h localhost -t 'home/home1/sensor/device_001/energy' \
-  -m '{"ts":1234567890,"wh_total":1500}'
+  -m '{"ts":1697049600000,"wh_total":1500}'
 ```
 
 ### Subscribe to All Topics
@@ -100,6 +99,15 @@ From the web app, toggle a device ON/OFF. You should see in the subscriber:
 ```
 home/home1/cmd/device_001/set {"on":false}
 ```
+
+### Publish a Test Alert
+
+```bash
+mosquitto_pub -h localhost -t 'home/home1/event/alert' \
+  -m '{"ts":1697049600000,"deviceId":"device_001","severity":"warning","message":"Device spike"}'
+```
+
+The alert should appear under Recent Alerts on the Dashboard.
 
 ## Feature Testing Checklist
 
@@ -137,19 +145,20 @@ home/home1/cmd/device_001/set {"on":false}
 - [ ] Cancel button closes form
 
 ### Insights
-- [ ] Weekly bar chart displays data
-- [ ] Period selector (Day/Week/Month) works
-- [ ] Average kWh/day calculates correctly
-- [ ] Projected monthly cost is accurate
-- [ ] Device breakdown pie chart shows
+- [ ] Today line chart displays data
+- [ ] Period selector (Day/Week/Month) works (week/month currently mirror today values)
+- [ ] kWh Today and Projected Monthly Cost make sense given tariff
+- [ ] Device breakdown pie chart shows and values add up
 - [ ] Recommendations display
 
 ### Settings
-- [ ] Home ID can be changed
+- [ ] Home ID can be changed (must match device topics)
 - [ ] Currency dropdown works
 - [ ] Tariff can be updated
-- [ ] MQTT broker URL can be changed
+- [ ] MQTT broker URL can be changed; reconnects successfully
 - [ ] Export Data downloads JSON file
+- [ ] Import Data applies values and shows success
+- [ ] Clear All Data clears localStorage and attempts to clear retained MQTT topics
 - [ ] Save Settings shows success message
 
 ## Performance Testing
@@ -165,15 +174,32 @@ for i in {1..100}; do
 done
 ```
 
+PowerShell (Windows):
+
+```powershell
+# Publish 100 readings rapidly
+for ($i = 1; $i -le 100; $i++) {
+  $payload = @{ 
+    ts      = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();
+    watts   = Get-Random -Minimum 0 -Maximum 1000;
+    voltage = 220;
+    current = 1.5;
+  } | ConvertTo-Json -Compress
+
+  mosquitto_pub -h localhost -t "home/home1/sensor/device_001/power" -m $payload
+  Start-Sleep -Milliseconds 100
+}
+```
+
 Chart should:
 - Update smoothly without lag
-- Limit to last 60 points
+- Limit to last 120 points (configurable by `VITE_MAX_CHART_POINTS`)
 - Not cause memory leaks
 
 ### Multiple Devices
 Run simulator with 10+ devices:
 ```javascript
-// Edit test-simulator.js and add more devices
+// Edit test-simulator.cjs and add more devices
 const devices = [
   { id: 'device_001', name: 'Device 1', baseWatts: 100, variance: 20 },
   { id: 'device_002', name: 'Device 2', baseWatts: 200, variance: 30 },
@@ -202,7 +228,7 @@ mosquitto_pub -h localhost -t 'home/home1/sensor/device_001/power' -m 'invalid j
 
 App should:
 - Not crash
-- Log error to console
+- Log error to console (if `VITE_DEBUG_MQTT=true` you’ll see more detail)
 - Continue processing other messages
 
 ### Network Interruption
@@ -234,11 +260,21 @@ Test in:
 - [ ] XSS attempts are sanitized
 - [ ] CSRF protection is in place
 
+If you run a backend at `/api`, verify cookie/CSRF behavior around login/logout and device persistence.
+
 ## Known Issues
 
 1. **Chart may lag with >120 data points** - Implement downsampling
 2. **localStorage has 5MB limit** - Add data pruning
-3. **WebSocket reconnection may fail** - Implement exponential backoff
+3. **WebSocket reconnection may fail** - Exponential backoff not implemented (uses 1s reconnect)
+
+Tip: To clear retained test data from the broker, use:
+
+```bash
+npm run mqtt:clear
+# or
+node scripts/clear-retained.cjs --broker mqtt://localhost:1883 --home home1 --devices device_001
+```
 
 ## Reporting Bugs
 

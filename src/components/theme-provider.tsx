@@ -48,6 +48,26 @@ const ThemeProviderInner: React.FC<PropsWithChildren<{ defaultTheme?: Theme }>> 
     applyThemeToDocument(theme);
   }, [theme]);
 
+  // When in system mode, react to OS theme changes
+  useEffect(() => {
+    if (theme !== "system") return;
+    const mql = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => applyThemeToDocument("system");
+    try {
+      mql.addEventListener("change", onChange);
+    } catch {
+      // Safari
+      mql.addListener(onChange);
+    }
+    return () => {
+      try {
+        mql.removeEventListener("change", onChange);
+      } catch {
+        mql.removeListener(onChange);
+      }
+    };
+  }, [theme]);
+
   const setTheme = (t: Theme) => {
     localStorage.setItem("theme", t);
     setThemeState(t);
