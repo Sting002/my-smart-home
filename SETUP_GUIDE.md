@@ -27,10 +27,12 @@ Relay (optional): `GPIO23 -> IN`, `5V -> VCC`, `GND -> GND`.
 - Power (sensor -> app): `home/{homeId}/sensor/{deviceId}/power`
   - `{ watts: number, voltage?: number, current?: number, ts?: number }`
   - If `ts` is omitted, the app uses its local time. If you send `ts`, use epoch milliseconds.
+  - The UI considers a device `ON` when `watts > 5`.
 - Energy (sensor -> app): `home/{homeId}/sensor/{deviceId}/energy`
   - `{ wh_total: number, ts?: number }` (app computes kWh today as `wh_total / 1000`)
 - Command (app -> device): `home/{homeId}/cmd/{deviceId}/set`
   - `{ on: boolean }`
+  - The app updates UI optimistically (instant toggle) and sets `lastSeen` to now; device readings should follow.
 
 Device is considered ON in the UI when `watts > 5`.
 
@@ -182,12 +184,18 @@ mosquitto_pub -h localhost -t 'home/home1/cmd/device_001/set' -m '{"on":false}'
 ## Connect the Web App
 
 - Start the app in dev mode: `npm run dev` and open `http://localhost:8080`.
-- On first run you’ll see onboarding at `/onboarding`.
+- On first run you'll see onboarding at `/onboarding`.
   - Enter the broker WebSocket URL. Common values:
     - Direct Mosquitto WS: `ws://<broker-host>:9001` (path is `/` by default)
     - Behind Nginx: `ws(s)://<your-domain>/mqtt` (when `/mqtt` proxies to Mosquitto)
-  - Note: The app’s default is `ws://localhost:9001/mqtt`. If your broker exposes WS at root `/`, remove `/mqtt`.
-- After connecting, you’ll land on the Dashboard. Devices appear automatically as they publish.
+  - Note: The app's default is `ws://localhost:9001/mqtt`. If your broker exposes WS at root `/`, remove `/mqtt`.
+- After connecting, you'll land on the Dashboard. Devices appear automatically as they publish.
+
+## App Thresholds, Auto-off and Essential Devices
+
+- Each device has a Threshold (W) and Auto-off (minutes). When a device stays below threshold for the configured minutes while ON, the app can auto-send OFF (Standby Kill).
+- Mark “Essential device” in the device edit form to keep it ON when activating Away/Sleep/Workday scenes.
+- Edit these in Device Detail (Edit button) or in-place numeric fields.
 
 ## Tips and Pitfalls
 
@@ -196,6 +204,7 @@ mosquitto_pub -h localhost -t 'home/home1/cmd/device_001/set' -m '{"on":false}'
 - Retained data: To clear retained power/energy topics, use Settings -> Clear All Data or the helper script `npm run mqtt:clear`.
 - WebSockets path: Ensure your WS URL path matches your broker/proxy (root `/` vs `/mqtt`).
 - Thresholds and scenes: Adjust device threshold W and automations in the app to test command flows.
+- Home ID: Ensure your device topics and the app’s Settings → Home ID match (default `home1`).
 
 ## What’s Next
 

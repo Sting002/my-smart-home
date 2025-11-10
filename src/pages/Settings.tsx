@@ -21,6 +21,22 @@ export const Settings: React.FC = () => {
   const [brokerUrl, setBrokerUrl] = useState(
     localStorage.getItem("brokerUrl") || "ws://localhost:9001/mqtt"
   );
+  // Energy cost & budget (simple TOU)
+  const [monthlyBudget, setMonthlyBudget] = useState<number>(() => {
+    const v = localStorage.getItem("monthlyBudget");
+    return v ? Number(v) : 0;
+  });
+  const [touEnabled, setTouEnabled] = useState<boolean>(() => localStorage.getItem("touEnabled") === "true");
+  const [peakPrice, setPeakPrice] = useState<number>(() => {
+    const v = localStorage.getItem("touPeakPrice");
+    return v ? Number(v) : tariff;
+  });
+  const [offpeakPrice, setOffpeakPrice] = useState<number>(() => {
+    const v = localStorage.getItem("touOffpeakPrice");
+    return v ? Number(v) : tariff;
+  });
+  const [offStart, setOffStart] = useState<string>(() => localStorage.getItem("touOffpeakStart") || "22:00");
+  const [offEnd, setOffEnd] = useState<string>(() => localStorage.getItem("touOffpeakEnd") || "06:00");
 
   // ✅ In use below (top success banner + import success)
   const [showSuccess, setShowSuccess] = useState(false);
@@ -46,6 +62,13 @@ export const Settings: React.FC = () => {
   // ✅ Uses brokerUrl state; shows success banner
   const handleSave = useCallback(() => {
     localStorage.setItem("brokerUrl", brokerUrl);
+    // Save energy cost settings
+    localStorage.setItem("monthlyBudget", String(monthlyBudget || 0));
+    localStorage.setItem("touEnabled", touEnabled ? "true" : "false");
+    localStorage.setItem("touPeakPrice", String(peakPrice || 0));
+    localStorage.setItem("touOffpeakPrice", String(offpeakPrice || 0));
+    localStorage.setItem("touOffpeakStart", offStart || "22:00");
+    localStorage.setItem("touOffpeakEnd", offEnd || "06:00");
     // Reconnect to apply new broker immediately
     try {
       mqttService.disconnect();
@@ -194,6 +217,68 @@ export const Settings: React.FC = () => {
               value={tariff}
               onChange={(e) => setTariff(parseFloat(e.target.value))}
               className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1 "
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Energy Cost & Budget */}
+      <div className="bg-gray-800 rounded-xl p-6">
+        <h2 className="text-white font-semibold mb-4">Energy Cost & Budget</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="text-gray-400 text-sm">Monthly Budget ({currency})</label>
+            <input
+              type="number"
+              value={monthlyBudget}
+              onChange={(e) => setMonthlyBudget(Number(e.target.value))}
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+            />
+          </div>
+          <div className="flex items-end gap-2">
+            <input id="touEnabled" type="checkbox" checked={touEnabled} onChange={(e) => setTouEnabled(e.target.checked)} />
+            <label htmlFor="touEnabled" className="text-gray-300 text-sm">Enable Time‑of‑Use (TOU)</label>
+          </div>
+          <div>
+            <label className="text-gray-400 text-sm">Peak Price ({currency}/kWh)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={peakPrice}
+              onChange={(e) => setPeakPrice(parseFloat(e.target.value))}
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+              disabled={!touEnabled}
+            />
+          </div>
+          <div>
+            <label className="text-gray-400 text-sm">Off‑peak Price ({currency}/kWh)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={offpeakPrice}
+              onChange={(e) => setOffpeakPrice(parseFloat(e.target.value))}
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+              disabled={!touEnabled}
+            />
+          </div>
+          <div>
+            <label className="text-gray-400 text-sm">Off‑peak Start (HH:MM)</label>
+            <input
+              type="time"
+              value={offStart}
+              onChange={(e) => setOffStart(e.target.value)}
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+              disabled={!touEnabled}
+            />
+          </div>
+          <div>
+            <label className="text-gray-400 text-sm">Off‑peak End (HH:MM)</label>
+            <input
+              type="time"
+              value={offEnd}
+              onChange={(e) => setOffEnd(e.target.value)}
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+              disabled={!touEnabled}
             />
           </div>
         </div>

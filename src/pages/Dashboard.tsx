@@ -22,7 +22,24 @@ export const Dashboard: React.FC = () => {
     [devices]
   );
 
-  const estimatedCost = useMemo(() => (todayKwh * tariff).toFixed(2), [todayKwh, tariff]);
+  const estimatedCost = useMemo(() => {
+    try {
+      const touEnabled = localStorage.getItem("touEnabled") === "true";
+      if (!touEnabled) return (todayKwh * tariff).toFixed(2);
+      const toNum = (x: any, d: number) => (isNaN(Number(x)) ? d : Number(x));
+      const peak = toNum(localStorage.getItem("touPeakPrice"), tariff);
+      const offp = toNum(localStorage.getItem("touOffpeakPrice"), tariff);
+      const start = String(localStorage.getItem("touOffpeakStart") || "22:00");
+      const end = String(localStorage.getItem("touOffpeakEnd") || "06:00");
+      const t = new Date();
+      const mins = t.getHours() * 60 + t.getMinutes();
+      const toM = (s: string) => { const [h,m] = s.split(":").map(Number); return h*60 + (m||0); };
+      const sM = toM(start), eM = toM(end);
+      const inOff = sM < eM ? (mins >= sM && mins < eM) : (mins >= sM || mins < eM);
+      const price = inOff ? offp : peak;
+      return (todayKwh * price).toFixed(2);
+    } catch { return (todayKwh * tariff).toFixed(2); }
+  }, [todayKwh, tariff]);
 
   const topConsumers = useMemo(
     () => [...devices].sort((a, b) => b.kwhToday - a.kwhToday).slice(0, 5),

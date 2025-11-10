@@ -297,6 +297,8 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
                 isOn: nextOn,
                 // If turning off, drop displayed watts to a small idle value until next reading
                 watts: nextOn ? d.watts : Math.min(d.watts, 1),
+                // Bump lastSeen for immediate online/offline UI responsiveness
+                lastSeen: Date.now(),
               }
             : d
         )
@@ -381,6 +383,10 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
   // ===== Background Rule Runner =====
   const exceedSinceRef = useRef<Record<string, number>>({});
   const triggeredRef = useRef<Record<string, boolean>>({});
+  // Standby kill tracking (below-threshold duration)
+  const lowSinceRef = useRef<Record<string, number>>({});
+  // Device offline alert tracking (debounce)
+  const offlineNotifiedRef = useRef<Record<string, number>>({});
 
   const loadRules = useCallback((): Array<
     { id: string; deviceId: string; thresholdW: number; minutes: number; action: string; sceneId?: string; lastTriggered?: number }
@@ -396,11 +402,16 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
     localStorage.setItem("rules", JSON.stringify(rules));
   }, []);
 
-  const isEssential = useCallback((name?: string, type?: string) => {
+  const isEssential = useCallback((name?: string, type?: string, id?: string) => {
+    // If device has explicit essential flag, prefer it
+    if (id) {
+      const dev = devices.find((d) => d.id === id);
+      if (dev && dev.essential === true) return true;
+    }
     const n = String(name || "").toLowerCase();
     const t = String(type || "").toLowerCase();
     return n.includes("fridge") || n.includes("refrigerator") || t.includes("fridge") || t.includes("refrigerator");
-  }, []);
+  }, [devices]);
 
   const computeSceneTargets = useCallback(
     (sceneId?: string) => {
@@ -419,9 +430,9 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
         case "away":
         case "sleep":
         case "workday":
-          return devices.map((d) => ({ deviceId: d.id, turnOn: isEssential(d.name, d.type) }));
+          return devices.map((d) => ({ deviceId: d.id, turnOn: isEssential(d.name, d.type, d.id) }));
         case "weekend":
-          return devices.map((d) => ({ deviceId: d.id, turnOn: isEssential(d.name, d.type) ? true : d.isOn }));
+          return devices.map((d) => ({ deviceId: d.id, turnOn: isEssential(d.name, d.type, d.id) ? true : d.isOn }));
         default:
           return devices.map((d) => ({ deviceId: d.id, turnOn: d.isOn }));
       }
@@ -505,10 +516,96 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       if (updated) saveRulesBack(rules);
+
+      // ---- Standby Kill (uses device.thresholdW and autoOffMins) ----
+      for (const d of devices) {
+        const thresh = Number(d.thresholdW || 0);
+        const mins = Number(d.autoOffMins || 0);
+        if (!d.isOn || !mins || !thresh) {
+          delete lowSinceRef.current[d.id];
+          continue;
+        }
+        if (d.watts < thresh) {
+          if (!lowSinceRef.current[d.id]) lowSinceRef.current[d.id] = now;
+          const elapsed = (now - (lowSinceRef.current[d.id] || now)) / 60000;
+          if (elapsed >= mins) {
+            if (!mqttService.isConnected()) {
+              toast({ title: "Standby kill blocked", description: `Cannot turn off ${d.name} (not connected)` });
+            } else {
+              setDevices((prev) => prev.map((x) => (x.id === d.id ? { ...x, isOn: false, watts: Math.min(x.watts, 1) } : x)));
+              mqttService.publish(`home/${homeId}/cmd/${d.id}/set`, { on: false });
+              toast({ title: "Standby kill", description: `${d.name} turned off after ${mins} min < ${thresh}W` });
+            }
+            delete lowSinceRef.current[d.id];
+          }
+        } else {
+          delete lowSinceRef.current[d.id];
+        }
+      }
+
+      // ---- Device Health Alerts (offline > 5 min) ----
+      for (const d of devices) {
+        const offlineFor = now - (Number(d.lastSeen || 0));
+        if (offlineFor > 5 * 60 * 1000) {
+          const last = offlineNotifiedRef.current[d.id] || 0;
+          if (now - last > 15 * 60 * 1000) {
+            offlineNotifiedRef.current[d.id] = now;
+            const alert = {
+              id: `${now}_${d.id}_offline`,
+              type: "warning" as const,
+              message: `${d.name} appears offline (${Math.floor(offlineFor / 60000)} min)`,
+              timestamp: now,
+              deviceId: d.id,
+              payload: { lastSeen: d.lastSeen },
+            };
+            setAlerts((prev) => [alert, ...prev].slice(0, 50));
+          }
+        }
+      }
     }, 5000);
 
     return () => clearInterval(interval);
   }, [devices, homeId, loadRules, saveRulesBack, computeSceneTargets, navigate]);
+
+  // ---- Budget Alerts (simple daily heuristic) ----
+  useEffect(() => {
+    const timer = setInterval(() => {
+      try {
+        const budgetMonthly = Number(localStorage.getItem("monthlyBudget") || 0) || 0;
+        if (!budgetMonthly) return;
+        const budgetDaily = budgetMonthly / 30;
+        // Price: use TOU if enabled, else flat tariff
+        const touEnabled = localStorage.getItem("touEnabled") === "true";
+        const priceNow = (() => {
+          if (!touEnabled) return tariff;
+          const peak = Number(localStorage.getItem("touPeakPrice") || tariff) || tariff;
+          const offp = Number(localStorage.getItem("touOffpeakPrice") || tariff) || tariff;
+          const start = String(localStorage.getItem("touOffpeakStart") || "22:00");
+          const end = String(localStorage.getItem("touOffpeakEnd") || "06:00");
+          const t = new Date();
+          const mins = t.getHours() * 60 + t.getMinutes();
+          const toM = (s: string) => {
+            const [hh, mm] = s.split(":").map((x) => Number(x));
+            return hh * 60 + (mm || 0);
+          };
+          const sM = toM(start), eM = toM(end);
+          const inOff = sM < eM ? (mins >= sM && mins < eM) : (mins >= sM || mins < eM);
+          return inOff ? offp : peak;
+        })();
+        const todayKwh = devices.reduce((sum, d) => sum + Number(d.kwhToday || 0), 0);
+        const todayCost = todayKwh * priceNow;
+        const ratio = todayCost / budgetDaily;
+        if (ratio >= 1.0) {
+          toast({ title: "Budget reached", description: `Today's usage ~${todayCost.toFixed(2)} over daily budget` });
+        } else if (ratio >= 0.9) {
+          toast({ title: "Budget 90%", description: `Today's usage ~${todayCost.toFixed(2)} near daily budget` });
+        } else if (ratio >= 0.75) {
+          toast({ title: "Budget 75%", description: `Today's usage ~${todayCost.toFixed(2)}` });
+        }
+      } catch {}
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [devices, tariff]);
 
   return (
     <EnergyContext.Provider value={value}>{children}</EnergyContext.Provider>

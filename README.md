@@ -2,14 +2,21 @@
 
 A real-time energy dashboard for ESP32-based devices using MQTT over WebSockets. Includes onboarding, device management, scenes/automations, insights, and a settings area with data import/export.
 
+This README reflects the current system behavior and features.
+
 ## Features
 
 - Real-time power monitoring with gauges and charts (Recharts)
-- Devices list and detail views with on/off control and live status
-- Scenes and Automations: built-in quick scenes (Away, Sleep, Workday, Weekend), custom scenes, and rules (if power > threshold for N minutes then notify/turn off/activate scene)
-- Insights: today power trend, simple week/month placeholders, device breakdown and projected cost
+- Devices list and detail views with on/off control and live status (instant UI response on toggles)
+- Scenes and Automations: built-in quick scenes (Away, Sleep, Workday, Weekend), custom scenes, and rule builder
+- Standby Kill (idle auto-off): turn devices off after below-threshold usage for N minutes
+- Device Health Alerts: detect devices “offline” if no readings for 5+ minutes
+- Budget Alerts: toast at 75/90/100% of daily budget (derived from monthly budget)
+- Time-of-Use Pricing (optional): peak/off-peak prices with configurable off-peak window
+- Essential Devices: mark devices that should remain on during Away/Sleep/Workday scenes
+- Insights: today power/energy trend (smoothed), device breakdown, projected cost
 - Alerts: listens for `event/alert` messages and shows recent alerts on the dashboard
-- Settings: MQTT broker URL, currency/tariff, export/import JSON, clear local data
+- Settings: MQTT broker URL, currency/tariff, TOU + budget, export/import JSON, clear local data
 - Authentication (optional): login/logout backed by `/api` endpoints when available
 
 ## Prerequisites
@@ -61,6 +68,21 @@ Open http://localhost:8080 (Vite dev server is configured to port 8080).
 - Complete onboarding at `/onboarding`: enter your broker WebSocket URL and connect.
 - Go to Dashboard. Devices will appear automatically as they publish MQTT, or add one manually via Devices -> Add Device.
 
+5) Publish test data (simulator)
+
+- Install dependency (once): `npm i mqtt`
+- Run the simulator (Node):
+
+```
+node ./test-simulator.cjs --broker mqtt://localhost:1883 --home home1
+```
+
+- PowerShell (Windows) using env vars:
+
+```
+$env:BROKER_URL='mqtt://localhost:1883'; $env:HOME_ID='home1'; node .\test-simulator.cjs
+```
+
 ## MQTT Topics
 
 - Sensor power -> app: `home/{homeId}/sensor/{deviceId}/power`
@@ -76,11 +98,14 @@ Open http://localhost:8080 (Vite dev server is configured to port 8080).
 
 Tip: deleting a device or using Settings -> Clear All Data attempts to clear retained power/energy topics by publishing zero-length retained payloads.
 
+Home/Settings inputs used by business logic are persisted in localStorage: `monthlyBudget`, `touEnabled`, `touPeakPrice`, `touOffpeakPrice`, `touOffpeakStart`, `touOffpeakEnd`.
+
 ## Routes
 
 - `/dashboard` — overview, All Off, top consumers, recent alerts
 - `/devices` — list, filter/sort, Add Device, navigate to details
-- `/device/:deviceId` — live chart, thresholds, delete
+- `/device/:deviceId` - live chart, thresholds, delete
+  - Device detail includes an Edit button to change name/room/type, thresholds, and to mark as Essential.
 - `/automations` — quick scenes + custom scenes + rule builder
 - `/insights` — trends, breakdown, KPIs
 - `/settings` — profile, tariff/currency, MQTT broker URL, import/export, clear data, logout
@@ -92,14 +117,15 @@ Tip: deleting a device or using Settings -> Clear All Data attempts to clear ret
 Environment variables (Vite):
 
 - `VITE_API_BASE` — base URL for API requests (default `/api`, dev proxy points to `http://localhost:4000`)
-- `VITE_MQTT_BROKER_URL` — default broker WS URL if none saved (defaults to `ws://localhost:9001/mqtt`)
-- `VITE_MAX_CHART_POINTS` — power history points kept in memory (default 120)
-- `VITE_DEBUG_MQTT` — set to `true` to log MQTT debug messages
+- `VITE_MQTT_BROKER_URL` - default broker WS URL if none saved (defaults to `ws://localhost:9001/mqtt`)
+- `VITE_MAX_CHART_POINTS` - power history points kept in memory (default 120)
+- `VITE_DEBUG_MQTT` - set to `true` to log MQTT debug messages
 
 Local storage keys:
 
 - `brokerUrl`, `onboarded`, `homeId`, `currency`, `tariff`
 - `devices`, `alerts`, `blockedDevices`, `rules`, `scenes`
+- `monthlyBudget`, `touEnabled`, `touPeakPrice`, `touOffpeakPrice`, `touOffpeakStart`, `touOffpeakEnd`
 
 ## Backend API (optional)
 
@@ -125,14 +151,20 @@ node scripts/clear-retained.cjs --broker mqtt://localhost:1883 --home home1 --de
 node scripts/clear-retained.cjs --broker mqtt://localhost:1883 --home home1 --from-backend http://localhost:4000
 ```
 
+- Start the test simulator (copy/paste):
+
+```bash
+npm run sim
+```
+
 ## Troubleshooting
 
 - MQTT connection: use the top banner and Settings -> Broker URL to reconnect. Ensure port 9001 WebSocket listener is enabled.
 - No devices: verify device topics and `homeId`. Use `mosquitto_sub -h localhost -t "home/#" -v`.
 - Charts not updating: confirm payloads match schemas and `ts` uses milliseconds.
 - Retained data repopulates: use Settings -> Clear All Data or the `mqtt:clear` script.
+- App is connected but no simulator data: check that the app’s `homeId` matches the simulator’s `--home` (default `home1`) and that your app WS URL is `ws://localhost:9001/mqtt`.
 
 ## License
 
 MIT License
-

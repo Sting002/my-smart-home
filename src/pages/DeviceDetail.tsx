@@ -21,6 +21,7 @@ export const DeviceDetail: React.FC = () => {
     type: "default",
     thresholdW: 1000,
     autoOffMins: 0,
+    essential: false,
   });
 
   useEffect(() => {
@@ -48,6 +49,7 @@ export const DeviceDetail: React.FC = () => {
       type: device.type || "default",
       thresholdW: device.thresholdW,
       autoOffMins: device.autoOffMins,
+      essential: !!device.essential,
     });
   }, [device]);
 
@@ -98,6 +100,7 @@ export const DeviceDetail: React.FC = () => {
       type: editForm.type as typeof device.type,
       thresholdW: Number(editForm.thresholdW) || 0,
       autoOffMins: Number(editForm.autoOffMins) || 0,
+      essential: !!editForm.essential,
     });
     setEditing(false);
     toast({ title: "Device updated", description: `${editForm.name} saved` });
@@ -145,7 +148,8 @@ export const DeviceDetail: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <button onClick={() => navigate("/devices")} className="text-green-500 flex items-center gap-2">
+      <button onClick={() => navigate("/devices")} className="text-transparent flex items-center gap-2">
+        <span className="text-green-500">← Back</span>
         ← Back
       </button>
 
@@ -254,6 +258,10 @@ export const DeviceDetail: React.FC = () => {
                 onChange={onEditChange}
                 className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
               />
+            </div>
+            <div className="flex items-center gap-2">
+              <input id="essential" name="essential" type="checkbox" checked={editForm.essential} onChange={(e) => setEditForm((p) => ({ ...p, essential: e.target.checked }))} />
+              <label htmlFor="essential" className="text-gray-300 text-sm">Essential device (don’t auto‑turn‑off in scenes)</label>
             </div>
           </div>
           <div className="flex gap-2 mt-4">

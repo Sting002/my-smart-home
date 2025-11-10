@@ -20,6 +20,8 @@ export interface Device {
   thresholdW: number;
   autoOffMins: number;
   lastSeen: number;
+  /** Marks device as essential for scenes/peak-shaving; not auto-turned-off */
+  essential?: boolean;
 }
 
 /** History of power readings per device for charts */

@@ -104,7 +104,7 @@ const AddDevice: React.FC = () => {
 
       addDevice(newDevice);
       setSubmitting(false);
-      navigate("/devices");
+      navigate(`/device/${newDevice.id}`);
     },
     [formData, addDevice, navigate, idExists]
   );
@@ -113,8 +113,9 @@ const AddDevice: React.FC = () => {
     <div className="space-y-6">
       <button
         onClick={() => navigate("/devices")}
-        className="text-green-500 flex items-center gap-2"
+        className="text-transparent flex items-center gap-2"
       >
+        <span className="text-green-500">← Back</span>
         ← Back
       </button>
 
@@ -204,7 +205,7 @@ const AddDevice: React.FC = () => {
                   className={`p-3 rounded-lg border-2 transition-all ${
                     formData.type === type.value
                       ? "border-green-500 bg-green-500/10"
-                      : "border-border bg-muted"
+                      : "border-gray-700 bg-gray-800 hover:bg-gray-700/60"
                   }`}
                 >
                   <div className="text-2xl mb-1">{type.icon}</div>

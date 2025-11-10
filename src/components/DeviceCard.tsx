@@ -35,7 +35,7 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
 
   return (
     <div
-      className="bg-gray-800 rounded-xl p-4 hover:bg-gray-750 transition-all cursor-pointer border border-gray-700"
+      className="bg-gray-800 rounded-xl p-4 hover:bg-gray-700/60 transition-all cursor-pointer border border-gray-700"
       onClick={onClick}
       role="button"
       tabIndex={0}

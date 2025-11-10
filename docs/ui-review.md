@@ -1,219 +1,106 @@
 # UI Components Review (src/components/ui)
 
-This document summarizes a per-file review of the UI library (Radix + shadcn patterns) and concrete suggestions. Overall, components are solid, well-structured, and accessible by default thanks to Radix. Notes below focus on polish, consistency, and maintainability.
-
-## Key Cross-Cutting Suggestions
-
-- Prefer a single toast system across the app. Standardize on shadcn toasts; remove the Sonner variant (done).
-- Ensure icon-only triggers in consuming code include `aria-label`.
-- Add brief TSDoc headers to complex components (e.g., `chart.tsx`, `sidebar.tsx`) to document patterns and advanced props.
-- For charts and panels, consider honoring `prefers-reduced-motion` in animated transitions (app-level)
-
-## File-by-File Findings
+This document summarizes a quick review of each component in `src/components/ui` with suggestions and potential issues. Export to PDF if needed.
 
 - accordion.tsx
-  - Status: Good. Chevron rotation uses data-state.
-  - Suggestions: None.
-
+  - Use Radix; ensure triggers have `aria-controls` and `aria-expanded` (Radix handles). No change needed.
 - alert-dialog.tsx
-  - Status: Good. Animations and focus handling are correct.
-  - Suggestions: In consumers, set clear button labels for confirm/cancel.
-
+  - Verify focus lock and Esc close are enabled; destructive variant styled consistently. No change.
 - alert.tsx
-  - Status: Good.
-  - Suggestions: Choose role="status" vs role="alert" in consumers based on urgency.
-
+  - Provide `role` and `aria-live` where shown for async messages. No change here.
 - aspect-ratio.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Ensure sensible default ratio. No change.
 - avatar.tsx
-  - Status: Good.
-  - Suggestions: Provide meaningful fallback text in consumers.
-
+  - Keep fallback initials; graceful error on broken src. No change.
 - badge.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Good; keep variants minimal. No change.
 - breadcrumb.tsx
-  - Status: Good.
-  - Suggestions: Mark current page crumb with `aria-current="page"` (consumer responsibility).
-
+  - Wrap in `<nav aria-label="Breadcrumb"><ol>…</ol></nav>` in usage. No change.
 - button.tsx
-  - Status: Good; variants and Slot usage are solid.
-  - Suggestions: Add `aria-label` on icon-only button uses.
-
+  - Solid cva variants. Suggest mirroring `disabled` to `aria-disabled` at call sites.
 - calendar.tsx
-  - Status: Good; DayPicker mapping is comprehensive.
-  - Suggestions: Pass locale if needed via props from consumers.
-
+  - Ensure keyboard navigation in usage. No change.
 - card.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Borders match `border` token; avoid over-shadows. No change.
 - carousel.tsx
-  - Status: Good.
-  - Suggestions: If used widely on mobile, verify swipe thresholds and SSR behavior.
-
+  - Add `aria-roledescription="carousel"` in usage. No change.
 - chart.tsx
-  - Status: Good; theme-aware CSS vars for Recharts, custom tooltip/legend.
-  - Change: displayName set to `ChartContainer` for better debugging (done).
-  - Suggestions: Memoize heavy tooltip content if rendering many series.
-
+  - Great theme-aware helpers. Consider adding `ReferenceArea` helper for TOU shading later.
 - checkbox.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Ensure label click targets; already typical. No change.
 - collapsible.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Confirm `aria-expanded` on trigger; Radix covers. No change.
 - command.tsx
-  - Status: Good; cmdk dialog integration and consistent styling.
-  - Suggestions: For very large lists, consider virtualization.
-
+  - Ensure `aria-activedescendant` in usage; fine.
 - context-menu.tsx
-  - Status: Good.
-  - Suggestions: Ensure labels in consumers.
-
+  - Close-on-select + focus return; Radix handles. No change.
 - dialog.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Provide `aria-labelledby`/`aria-describedby` when used. No change here.
 - drawer.tsx
-  - Status: Good; Vaul-based.
-  - Suggestions: Confirm scroll lock behavior on mobile.
-
+  - `shouldScaleBackground` prop exposed; default true. No change.
 - dropdown-menu.tsx
-  - Status: Good.
-  - Suggestions: Use descriptive labels in consumers.
-
+  - Keyboard traversal correct. No change.
 - form.tsx
-  - Status: Good (RHF helpers).
-  - Suggestions: None.
-
+  - Keep error text `role="alert"` in usage. No change.
 - hover-card.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Add open delay in usage to prevent flicker. No change.
 - input-otp.tsx
-  - Status: Good; caret and groups are styled.
-  - Suggestions: Provide clear instructions and labeling in consumers.
-
+  - Provide screen-reader instructions in usage. No change.
 - input.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Ensure labels tie via `htmlFor`. No change.
 - label.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Typing OK. No change.
 - menubar.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Keyboard navigation; Radix covers. No change.
 - navigation-menu.tsx
-  - Status: Good.
-  - Suggestions: Confirm touch target spacing in usage.
-
+  - Works; no change.
 - pagination.tsx
-  - Status: Good.
-  - Suggestions: Add aria-labels for Prev/Next in consumers.
-
+  - Announce current page. No change.
 - popover.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Focus return to trigger; Radix covers. No change.
 - progress.tsx
-  - Status: Good.
-  - Suggestions: Provide `aria-valuetext` where helpful in consumers.
-
+  - Provide `aria-*` in usage. No change.
 - radio-group.tsx
-  - Status: Good.
-  - Suggestions: Ensure group labels via fieldset/legend or aria-labelledby in consumers.
-
+  - Arrow key navigation; Radix covers. No change.
 - resizable.tsx
-  - Status: Good; handle component is neat.
-  - Suggestions: Consider adding SR instructions (aria-describedby) on handles in consumers.
-
+  - Add handle descriptions in usage if needed. No change.
 - scroll-area.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Show visible focus. No change.
 - select.tsx
-  - Status: Good.
-  - Suggestions: Ensure label association in consumers.
-
+  - Announce selection; Radix covers. No change.
 - separator.tsx
-  - Status: Good.
-  - Suggestions: Use `aria-hidden="true"` in decorative contexts.
-
+  - `role="separator"` in usage when semantic. No change.
 - sheet.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Close on overlay click/Esc; Radix covers. No change.
 - sidebar.tsx
-  - Status: Full-featured provider; mobile-aware; cookie persistence.
-  - Change: Restores open/collapsed state from cookie on mount (done).
-  - Suggestions: Add prefers-reduced-motion variant for transitions (optional).
-
+  - Landmark labels in usage. No change.
 - skeleton.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Use `aria-busy` on parent while loading. No change.
 - slider.tsx
-  - Status: Good.
-  - Suggestions: Provide helpful `aria-valuetext` in consumers.
-
+  - Keyboard increments; Radix covers. No change.
 - switch.tsx
-  - Status: Good.
-  - Suggestions: Ensure label association in consumers.
-
+  - Good focus ring; pair with `<label>` for larger hit target.
 - table.tsx
-  - Status: Good.
-  - Suggestions: Use `scope="col"` on th elements in consumer markup.
-
+  - Use `scope="col/row"`. No change.
 - tabs.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - `aria-controls` connections; Radix covers. No change.
 - textarea.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Label association; no change.
 - toast.tsx
-  - Status: Good; Radix-based toast variants.
-  - Suggestions: None.
-
+  - Removed stray `toast-close` attribute (fixed). Otherwise fine.
 - toaster.tsx
-  - Status: Good; integrates with useToast hook state.
-  - Suggestions: None.
-
+  - Ensure one provider at app root. No change.
 - toggle-group.tsx
-  - Status: Good; context-driven styling.
-  - Suggestions: None.
-
+  - `aria-pressed` maintained; fine.
 - toggle.tsx
-  - Status: Good.
-  - Suggestions: None.
-
+  - Same as above.
 - tooltip.tsx
-  - Status: Good; provider exported.
-  - Suggestions: None.
-
+  - Delay to avoid touch conflicts. No change.
 - use-toast.ts
-  - Status: Good re-export convenience.
-  - Suggestions: Use a single import pattern app-wide for consistency.
+  - Fine.
 
-## Implemented Changes
-
-- Removed unused `src/components/ui/sonner.tsx` to standardize on shadcn toasts.
-- Chart: set `ChartContainer.displayName = "ChartContainer"` for clearer stack traces.
-- Sidebar: restore open/collapsed state from cookie on mount in uncontrolled mode.
-
-## Suggested Next Steps
-
-- Add short TSDoc headers to `chart.tsx` and `sidebar.tsx` explaining config/theme mapping and provider usage.
-- Consider `prefers-reduced-motion` CSS to reduce animation in Accordions/Sidebar if needed.
-- Audit consuming code for icon-only buttons and add `aria-label` where missing.
+Implemented fixes:
+- Replace invalid Tailwind shade `hover:bg-gray-750` with `hover:bg-gray-700/60` in Device cards and Automations scene buttons.
+- Removed stray `toast-close` attribute from `toast.tsx`.
+- Optimistic `lastSeen` update on toggles for instant online/offline feedback.
 

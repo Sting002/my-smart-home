@@ -43,6 +43,18 @@ brew services restart mosquitto
 node test-simulator.cjs --broker mqtt://localhost:1883 --home home1
 ```
 
+PowerShell (Windows):
+
+```powershell
+$env:BROKER_URL='mqtt://localhost:1883'; $env:HOME_ID='home1'; node .\test-simulator.cjs
+```
+
+To retain messages while testing reconnects:
+
+```bash
+node test-simulator.cjs --broker mqtt://localhost:1883 --home home1 --retain
+```
+
 You should see logs similar to:
 ```
 ✅ Connected to MQTT broker
@@ -67,6 +79,10 @@ Open http://localhost:8080
 3. Click "Connect"
 
 Devices should appear automatically in the Devices tab!
+
+If the app connects but nothing appears:
+- Ensure the app’s Settings → Home ID matches the simulator’s `--home` (default `home1`).
+- Ensure the app’s Broker URL is `ws://localhost:9001/mqtt` unless your broker serves WS at root (`ws://host:9001/`).
 
 ## Manual Testing with MQTT CLI
 

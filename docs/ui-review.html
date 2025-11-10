@@ -1,57 +1,86 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>UI Components Review</title>
-    <style>
-      :root { color-scheme: light dark; }
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji'; margin: 2rem; line-height: 1.5; }
-      h1, h2 { margin-top: 1.5rem; }
-      code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
-      .file { margin-top: 1rem; }
-      .file h3 { margin: .75rem 0 .25rem; }
-      ul { margin: .25rem 0 .75rem 1.25rem; }
-      .muted { color: #666; }
-      @media print { a[href]::after { content: " (" attr(href) ")"; font-size: .9em; } }
-    </style>
+<head>
+  <meta charset="utf-8" />
+  <title>UI Components Review</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.5; padding: 24px; color: #111; }
+    h1, h2 { margin: 0.6em 0; }
+    h1 { font-size: 1.8rem; }
+    h2 { font-size: 1.2rem; margin-top: 1.2em; }
+    ul { margin: 0.4em 0 1em 1.2em; }
+    li { margin: 0.2em 0; }
+    .note { background:#f6f8fa; border:1px solid #e1e4e8; padding:12px; border-radius:8px; }
+    .small { color:#555; font-size:0.95rem; }
+    code { background:#f2f2f2; padding:0 4px; border-radius:4px; }
+  </style>
   </head>
-  <body>
-    <h1>UI Components Review (src/components/ui)</h1>
+<body>
+  <h1>UI Components Review (src/components/ui)</h1>
+  <p class="small">This report summarizes a quick review and suggestions for the UI primitives. It can be printed to PDF.</p>
 
-    <p>This report summarizes a per-file review of the UI components, suggestions, and implemented changes.</p>
-
-    <h2>Key Cross-Cutting Suggestions</h2>
+  <div class="note">
+    <strong>Implemented fixes:</strong>
     <ul>
-      <li>Standardize on shadcn toasts and remove alternative toast systems (done).</li>
-      <li>Ensure icon-only triggers in consuming code have <code>aria-label</code>.</li>
-      <li>Add concise TSDoc comments to complex components (chart, sidebar).</li>
-      <li>Optionally honor <code>prefers-reduced-motion</code> for animations.</li>
+      <li>Replaced invalid Tailwind shade <code>hover:bg-gray-750</code> with <code>hover:bg-gray-700/60</code> in Device cards and Automations.</li>
+      <li>Removed stray <code>toast-close</code> attribute from <code>toast.tsx</code>.</li>
+      <li>Optimistic <code>lastSeen</code> update on toggles for instant online/offline feedback.</li>
     </ul>
+  </div>
 
-    <h2>Per-File Findings</h2>
-    <p class="muted">See docs/ui-review.md for full details. Highlights below:</p>
-    <ul>
-      <li><strong>chart.tsx</strong>: Theme-aware CSS vars; displayName set to ChartContainer; consider memoizing heavy tooltip content.</li>
-      <li><strong>sidebar.tsx</strong>: Cookie-persisted state; now also restored on mount in uncontrolled mode.</li>
-      <li><strong>alert-dialog.tsx, dialog.tsx</strong>: Solid Radix patterns; ensure descriptive labels in consumers.</li>
-      <li><strong>command.tsx</strong>: Consider virtualization for very large lists.</li>
-      <li><strong>forms/select/inputs</strong>: Ensure label associations and aria-valuetext in consumers where helpful.</li>
-    </ul>
+  <h2>Component Notes</h2>
+  <ul>
+    <li><strong>accordion.tsx</strong> — Radix handles a11y; ensure triggers are labelled. OK.</li>
+    <li><strong>alert-dialog.tsx</strong> — Focus lock/Esc close enabled. OK.</li>
+    <li><strong>alert.tsx</strong> — Use <code>role</code> and <code>aria-live</code> where used. OK.</li>
+    <li><strong>aspect-ratio.tsx</strong> — Sensible default ratio. OK.</li>
+    <li><strong>avatar.tsx</strong> — Fallback initials; broken <code>img</code> safe. OK.</li>
+    <li><strong>badge.tsx</strong> — Minimal variants; good.</li>
+    <li><strong>breadcrumb.tsx</strong> — Use <code>&lt;nav aria-label="Breadcrumb"&gt;</code> and <code>&lt;ol&gt;</code> in usage.</li>
+    <li><strong>button.tsx</strong> — Great <code>cva</code>; mirror <code>disabled</code> to <code>aria-disabled</code> at call sites.</li>
+    <li><strong>calendar.tsx</strong> — Keyboard nav in usage.</li>
+    <li><strong>card.tsx</strong> — Borders match tokens; OK.</li>
+    <li><strong>carousel.tsx</strong> — Add <code>aria-roledescription="carousel"</code> in usage.</li>
+    <li><strong>chart.tsx</strong> — Consider adding <code>ReferenceArea</code> helper for TOU shading.</li>
+    <li><strong>checkbox.tsx</strong> — Ensure label click target. OK.</li>
+    <li><strong>collapsible.tsx</strong> — <code>aria-expanded</code> on trigger; OK.</li>
+    <li><strong>command.tsx</strong> — Manage <code>aria-activedescendant</code> in usage.</li>
+    <li><strong>context-menu.tsx</strong> — Focus return; OK.</li>
+    <li><strong>dialog.tsx</strong> — Provide <code>aria-labelledby</code>/<code>aria-describedby</code> in usage.</li>
+    <li><strong>drawer.tsx</strong> — Background scaling configurable; OK.</li>
+    <li><strong>dropdown-menu.tsx</strong> — Keyboard traversal; OK.</li>
+    <li><strong>form.tsx</strong> — Error text should have <code>role="alert"</code>.</li>
+    <li><strong>hover-card.tsx</strong> — Add open delay in usage.</li>
+    <li><strong>input-otp.tsx</strong> — SR instructions in usage.</li>
+    <li><strong>input.tsx</strong> — Label association; OK.</li>
+    <li><strong>label.tsx</strong> — Typing OK.</li>
+    <li><strong>menubar.tsx</strong> — Radix a11y OK.</li>
+    <li><strong>navigation-menu.tsx</strong> — OK.</li>
+    <li><strong>pagination.tsx</strong> — Announce current page in usage.</li>
+    <li><strong>popover.tsx</strong> — Focus return to trigger; OK.</li>
+    <li><strong>progress.tsx</strong> — Provide <code>aria-valuenow/min/max</code> in usage.</li>
+    <li><strong>radio-group.tsx</strong> — Arrow nav; OK.</li>
+    <li><strong>resizable.tsx</strong> — Handle descriptions; OK.</li>
+    <li><strong>scroll-area.tsx</strong> — Visible focus; OK.</li>
+    <li><strong>select.tsx</strong> — Announce selection; OK.</li>
+    <li><strong>separator.tsx</strong> — <code>role="separator"</code> as needed.</li>
+    <li><strong>sheet.tsx</strong> — Overlay/Esc close; OK.</li>
+    <li><strong>sidebar.tsx</strong> — Landmark labels in usage.</li>
+    <li><strong>skeleton.tsx</strong> — Use <code>aria-busy</code> while loading.</li>
+    <li><strong>slider.tsx</strong> — Keyboard increments and labels in usage.</li>
+    <li><strong>switch.tsx</strong> — Pair with <code>&lt;label&gt;</code> for larger hit target.</li>
+    <li><strong>table.tsx</strong> — Headers use <code>scope</code>; OK.</li>
+    <li><strong>tabs.tsx</strong> — <code>aria-controls</code> linked; OK.</li>
+    <li><strong>textarea.tsx</strong> — Label association; OK.</li>
+    <li><strong>toast.tsx</strong> — Fixed attribute; otherwise OK.</li>
+    <li><strong>toaster.tsx</strong> — Ensure single provider; OK.</li>
+    <li><strong>toggle-group.tsx</strong> — <code>aria-pressed</code>; OK.</li>
+    <li><strong>toggle.tsx</strong> — OK.</li>
+    <li><strong>tooltip.tsx</strong> — Show/hide delay; OK.</li>
+    <li><strong>use-toast.ts</strong> — OK.</li>
+  </ul>
 
-    <h2>Implemented Changes</h2>
-    <ul>
-      <li>Removed unused <code>src/components/ui/sonner.tsx</code> (standardize on shadcn toasts).</li>
-      <li>Set <code>ChartContainer.displayName</code> to <code>"ChartContainer"</code>.</li>
-      <li>Sidebar now restores open/collapsed state from cookie on mount when uncontrolled.</li>
-    </ul>
-
-    <h2>Next Steps</h2>
-    <ul>
-      <li>Add short TSDoc headers to chart/sidebar.</li>
-      <li>Review icon-only buttons in app code for <code>aria-label</code>s.</li>
-      <li>Consider <code>prefers-reduced-motion</code> in global CSS.</li>
-    </ul>
-  </body>
-  </html>
+</body>
+</html>
 

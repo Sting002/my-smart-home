@@ -148,6 +148,33 @@ sudo systemctl restart mosquitto
 
 Tip: The frontend default path is `/mqtt` (behind Nginx). If exposing Mosquitto directly, set `VITE_MQTT_BROKER_URL` to your `ws(s)://host:port/mqtt` and route accordingly.
 
+### Windows (Mosquitto) quick example
+
+`C:\\mosquitto\\mosquitto.conf`:
+
+```
+allow_anonymous true
+
+# Standard MQTT for devices
+listener 1883
+
+# WebSockets for the web app
+listener 9001
+protocol websockets
+
+# Optional persistence
+# persistence true
+# persistence_location C:/mosquitto/data/
+```
+
+Run from an elevated PowerShell:
+
+```
+"C:\\Program Files\\mosquitto\\mosquitto.exe" -c C:\\mosquitto\\mosquitto.conf -v
+```
+
+The app’s default WS URL is `ws://localhost:9001/mqtt`. If your broker serves WS at `/` (no `/mqtt`), update the app Settings Broker URL accordingly.
+
 ## Docker Deployment
 
 Dockerfile (multi-stage build):

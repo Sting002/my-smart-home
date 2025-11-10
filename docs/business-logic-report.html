@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Business Logic Report</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.5; padding: 24px; color: #111; }
+    h1, h2 { margin: 0.6em 0; }
+    h1 { font-size: 1.8rem; }
+    h2 { font-size: 1.2rem; margin-top: 1.2em; }
+    ul { margin: 0.4em 0 1em 1.2em; }
+    li { margin: 0.2em 0; }
+    code { background:#f2f2f2; padding:0 4px; border-radius:4px; }
+  </style>
+</head>
+<body>
+  <h1>Business Logic Additions — Details and Benefits</h1>
+
+  <h2>Standby Kill (Idle Auto-off)</h2>
+  <ul>
+    <li><strong>What</strong>: Auto-OFF when a device stays below Threshold (W) for Auto-off minutes.</li>
+    <li><strong>Why</strong>: Reduces standby/vampire energy usage.</li>
+    <li><strong>How</strong>: Background loop checks each device and publishes OFF when conditions are met; UI updates optimistically.</li>
+    <li><strong>Code</strong>: <code>src/contexts/EnergyContext.tsx</code> (rule runner, <code>lowSinceRef</code>).</li>
+  </ul>
+
+  <h2>Device Health Alerts (Offline Detection)</h2>
+  <ul>
+    <li><strong>What</strong>: Warn if <code>lastSeen</code> &gt; 5 min ago.</li>
+    <li><strong>Why</strong>: Early detection of sensor/network issues.</li>
+    <li><strong>How</strong>: Debounced alert injection (15 min per device).</li>
+    <li><strong>Code</strong>: <code>src/contexts/EnergyContext.tsx</code> (rule runner, <code>offlineNotifiedRef</code>).</li>
+  </ul>
+
+  <h2>Budget Alerts (Daily Heuristic)</h2>
+  <ul>
+    <li><strong>What</strong>: Toast at ~75%, 90%, 100% of daily budget.</li>
+    <li><strong>Why</strong>: Visibility to prevent overspending.</li>
+    <li><strong>How</strong>: Today’s kWh × current price (TOU-aware) compared every minute.</li>
+    <li><strong>Code</strong>: <code>src/contexts/EnergyContext.tsx</code> (minute interval effect).</li>
+  </ul>
+
+  <h2>Time-of-Use Pricing</h2>
+  <ul>
+    <li><strong>What</strong>: Peak/off-peak pricing with a window.</li>
+    <li><strong>Why</strong>: Incentivizes off-peak usage.</li>
+    <li><strong>How</strong>: Settings enable TOU; Dashboard/alerts use active period price.</li>
+    <li><strong>Code</strong>: <code>src/pages/Settings.tsx</code>, <code>src/pages/Dashboard.tsx</code>, <code>src/contexts/EnergyContext.tsx</code>.</li>
+  </ul>
+
+  <h2>Essential Devices</h2>
+  <ul>
+    <li><strong>What</strong>: Mark devices to remain ON in Away/Sleep/Workday scenes.</li>
+    <li><strong>Why</strong>: Prevents cutting power to critical appliances.</li>
+    <li><strong>How</strong>: Edit device → “Essential device”; scene targets compute accordingly.</li>
+    <li><strong>Code</strong>: <code>src/pages/DeviceDetail.tsx</code>, <code>src/contexts/EnergyContext.tsx</code>.</li>
+  </ul>
+
+  <h2>Instant Status on Toggle</h2>
+  <ul>
+    <li><strong>What</strong>: UI shows ON/OFF and online status immediately.</li>
+    <li><strong>Why</strong>: Better UX; no refresh required.</li>
+    <li><strong>How</strong>: Optimistic update sets <code>isOn</code>, adjusts <code>watts</code> on OFF, and updates <code>lastSeen</code>.</li>
+    <li><strong>Code</strong>: <code>src/contexts/EnergyContext.tsx</code> (<code>toggleDevice</code>).</li>
+  </ul>
+
+  <h2>Configuration Keys</h2>
+  <p>Persisted in localStorage: <code>monthlyBudget</code>, <code>touEnabled</code>, <code>touPeakPrice</code>, <code>touOffpeakPrice</code>, <code>touOffpeakStart</code>, <code>touOffpeakEnd</code>.</p>
+
+</body>
+</html>
+

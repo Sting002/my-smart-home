@@ -212,6 +212,7 @@ export const Insights: React.FC = () => {
           todayTrend.length === 0 ? (
             <div className="text-gray-400 text-sm">Collecting data. Check back shortly.</div>
           ) : (
+            <>
             <ResponsiveContainer width="100%" height={280}>
               <LineChart data={trendWithAvg} margin={{ top: 8, right: 12, left: 8, bottom: 24 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
@@ -259,6 +260,8 @@ export const Insights: React.FC = () => {
                 <Brush dataKey="time" height={20} stroke="#9CA3AF" travellerWidth={8} />
               </LineChart>
             </ResponsiveContainer>
+            <div className="text-[11px] text-gray-400 mt-2">Legend: <span className="text-gray-200">Power</span> (green), <span className="text-gray-200">Avg</span> (blue dashed)</div>
+            </>
           )
         )}
 
