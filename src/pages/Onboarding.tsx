@@ -2,6 +2,7 @@
 import React, { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { mqttService } from "@/services/mqttService";
+import { useEnergy } from "@/contexts/EnergyContext";
 
 const isValidWsUrl = (val: string) => {
   try {
@@ -20,6 +21,7 @@ export const Onboarding: React.FC = () => {
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string>("");
   const navigate = useNavigate();
+  const { refreshBrokerConfig } = useEnergy();
 
   const handleConnect = useCallback(async () => {
     setConnecting(true);
@@ -35,12 +37,14 @@ export const Onboarding: React.FC = () => {
       // ⬇️ 2nd arg is a NUMBER (timeout ms), not an options object
       await mqttService.connectAndWait(brokerUrl, 4000);
 
+      const trimmed = brokerUrl.trim();
       // Persist and mark onboarding complete
-      localStorage.setItem("brokerUrl", brokerUrl);
+      localStorage.setItem("brokerUrl", trimmed);
       localStorage.setItem("onboarded", "true");
       if (!localStorage.getItem("homeId")) {
         localStorage.setItem("homeId", "home1");
       }
+      refreshBrokerConfig();
 
       // Go straight to the app (ProtectedRoute will allow it now)
       navigate("/dashboard", { replace: true });
@@ -51,7 +55,7 @@ export const Onboarding: React.FC = () => {
     } finally {
       setConnecting(false);
     }
-  }, [brokerUrl, navigate]);
+  }, [brokerUrl, navigate, refreshBrokerConfig]);
 
   return (
     <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">

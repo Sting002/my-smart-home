@@ -26,7 +26,10 @@ export const Dashboard: React.FC = () => {
     try {
       const touEnabled = localStorage.getItem("touEnabled") === "true";
       if (!touEnabled) return (todayKwh * tariff).toFixed(2);
-      const toNum = (x: any, d: number) => (isNaN(Number(x)) ? d : Number(x));
+      const toNum = (value: string | null, fallback: number): number => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : fallback;
+      };
       const peak = toNum(localStorage.getItem("touPeakPrice"), tariff);
       const offp = toNum(localStorage.getItem("touOffpeakPrice"), tariff);
       const start = String(localStorage.getItem("touOffpeakStart") || "22:00");
@@ -38,7 +41,9 @@ export const Dashboard: React.FC = () => {
       const inOff = sM < eM ? (mins >= sM && mins < eM) : (mins >= sM || mins < eM);
       const price = inOff ? offp : peak;
       return (todayKwh * price).toFixed(2);
-    } catch { return (todayKwh * tariff).toFixed(2); }
+    } catch {
+      return (todayKwh * tariff).toFixed(2);
+    }
   }, [todayKwh, tariff]);
 
   const topConsumers = useMemo(
@@ -52,7 +57,7 @@ export const Dashboard: React.FC = () => {
     if (!mqttService.isConnected()) {
       toast({
         title: "Not connected to MQTT",
-        description: "Cannot send commands. Check Settings → Broker URL.",
+        description: "Cannot send commands. Check Settings -> Broker URL.",
         action: (
           <ToastAction altText="Open Settings" onClick={() => navigate("/settings")}>
             Reconnect
@@ -72,7 +77,7 @@ export const Dashboard: React.FC = () => {
       mqttService.publish(`home/${homeId}/cmd/${d.id}/set`, { on: false });
     });
     toast({ title: "All Off sent", description: `Turning off ${toTurnOff.length} devices` });
-  }, [devices, homeId, navigate]);
+  }, [devices, homeId, navigate, updateDevice]);
 
   const anyDevice = devices.length > 0;
 

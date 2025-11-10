@@ -114,7 +114,9 @@ export const DeviceDetail: React.FC = () => {
       // Try backend delete (non-fatal if unauthorized)
       try {
         await apiRemoveDevice(device.id);
-      } catch {}
+      } catch (error) {
+        console.warn("Device removal API call failed", error);
+      }
 
       // Clear retained MQTT readings (if connected)
       try {
@@ -124,7 +126,9 @@ export const DeviceDetail: React.FC = () => {
           mqttService.publishRaw(powerTopic, "", { retain: true });
           mqttService.publishRaw(energyTopic, "", { retain: true });
         }
-      } catch {}
+      } catch (error) {
+        console.warn("Failed to clear retained MQTT topics", error);
+      }
 
       // Remove locally and navigate away
       removeDevice(device.id);

@@ -1,0 +1,149 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 4192 >>
+stream
+BT
+/F1 12 Tf
+72 720 Td
+(Smart Home Energy Monitor ? Implementation Report) Tj
+0 -14 Td
+0 -14 Td
+(1. Backend/middleware/auth.cjs) Tj
+0 -14 Td
+(- Replaced the custom HMAC token logic with jsonwebtoken, keeping PBKDF2 password) Tj
+0 -14 Td
+(hashing but delegating cookie signing/verification to a single, audited library. This) Tj
+0 -14 Td
+(reduces security drift and makes rotation/expiration easier to manage.) Tj
+0 -14 Td
+0 -14 Td
+(2. Backend/utils/jwt.cjs) Tj
+0 -14 Td
+(- Removed the unused alternate JWT helper so there is exactly one auth implementation) Tj
+0 -14 Td
+(to maintain, eliminating confusion about which module the server actually uses.) Tj
+0 -14 Td
+0 -14 Td
+(3. src/utils/energyContextTypes.ts) Tj
+0 -14 Td
+(- Extended the context contract with a `refreshBrokerConfig` callback so components) Tj
+0 -14 Td
+(such as Settings/Onboarding can notify the provider whenever broker/onboarding data in) Tj
+0 -14 Td
+(localStorage changes.) Tj
+0 -14 Td
+0 -14 Td
+(4. New modular hooks) Tj
+0 -14 Td
+(- src/hooks/useEnergyState.ts: centralizes persisted state \\(devices, alerts, tariffs,) Tj
+0 -14 Td
+(etc.\\) plus localStorage writes, so EnergyContext stays focused on orchestration rather) Tj
+0 -14 Td
+(than storage plumbing.) Tj
+0 -14 Td
+(- src/hooks/useOnboardingConfig.ts: tracks broker URL + onboarded flag with stable) Tj
+0 -14 Td
+(dependencies and storage-event syncing, preventing repeated MQTT reconnect loops.) Tj
+0 -14 Td
+(- src/hooks/useMqttLifecycle.ts & useMqttSubscriptions.ts: isolate) Tj
+0 -14 Td
+(connection/resubscribe logic and topic handling, making reconnect behavior and message) Tj
+0 -14 Td
+(processing easier to test.) Tj
+0 -14 Td
+(- src/hooks/useAutomationRunner.tsx: moves automations, standby kill, and) Tj
+0 -14 Td
+(offline-health monitoring into a dedicated runner; keeps EnergyContext readable while) Tj
+0 -14 Td
+(preserving toasts/commands.) Tj
+0 -14 Td
+(- src/hooks/useBudgetAlerts.ts: debounces budget toasts so users only see 75/90/100%) Tj
+0 -14 Td
+(alerts once per day instead of every minute.) Tj
+0 -14 Td
+0 -14 Td
+(5. src/contexts/EnergyContext.tsx) Tj
+0 -14 Td
+(- Refactored to consume the new hooks, drastically shrinking the file and giving each) Tj
+0 -14 Td
+(responsibility \\(state, MQTT, automations, budgets\\) its own module. The provider still) Tj
+0 -14 Td
+(exposes device CRUD plus the new refresh helper, but now renders more predictably and is) Tj
+0 -14 Td
+(simpler to maintain.) Tj
+0 -14 Td
+0 -14 Td
+(6. src/pages/Onboarding.tsx) Tj
+0 -14 Td
+(- After a successful `connectAndWait`, trims and saves the broker URL, calls) Tj
+0 -14 Td
+(`refreshBrokerConfig`, and otherwise behaves as before. This ensures the provider) Tj
+0 -14 Td
+(immediately sees the new broker without relying on unstable `localStorage.getItem`) Tj
+0 -14 Td
+(dependencies.) Tj
+0 -14 Td
+0 -14 Td
+(7. src/pages/Settings.tsx) Tj
+0 -14 Td
+(- Broker saves are now validated: tariff/TOU settings persist immediately, but the) Tj
+0 -14 Td
+(broker URL is only stored \\(and the provider refreshed\\) if `connectAndWait` succeeds. Users) Tj
+0 -14 Td
+(get inline error text and a disabled button while a save is in progress, stopping ?locked) Tj
+0 -14 Td
+(out? scenarios caused by a bad host.) Tj
+0 -14 Td
+0 -14 Td
+(8. docs/codebase-overview.pdf & docs/improvement-suggestions.pdf) Tj
+0 -14 Td
+(- Added shareable write-ups summarizing the architecture and the agreed-on) Tj
+0 -14 Td
+(improvements. These help teammates or stakeholders review the system without needing the) Tj
+0 -14 Td
+(CLI transcript.) Tj
+0 -14 Td
+0 -14 Td
+(9. Remaining issues / limitations) Tj
+0 -14 Td
+(- Backend/smarthome.db: the file is locked by another process, so I couldn?t revert the) Tj
+0 -14 Td
+(incidental timestamp change. Please close the process that holds the DB if you need a) Tj
+0 -14 Td
+(clean reset.) Tj
+0 -14 Td
+(- Lint cleanup: `npm run lint` still fails due to pre-existing issues \\(empty block in) Tj
+0 -14 Td
+(`src/components/ui/sidebar.tsx`, multiple `any` usages in Dashboard/Insights, etc.\\). The) Tj
+0 -14 Td
+(refactor didn?t introduce new errors, but I left the overall lint status as-is so the) Tj
+0 -14 Td
+(original warnings remain visible for future cleanup.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000004475 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+4545
+%%EOF

@@ -14,7 +14,16 @@ type ExportShape = {
 };
 
 export const Settings: React.FC = () => {
-  const { homeId, setHomeId, currency, setCurrency, tariff, setTariff, devices } = useEnergy();
+  const {
+    homeId,
+    setHomeId,
+    currency,
+    setCurrency,
+    tariff,
+    setTariff,
+    devices,
+    refreshBrokerConfig,
+  } = useEnergy();
   // theme removed
 
   // ✅ In use below (MQTT section + Save button)
@@ -40,6 +49,8 @@ export const Settings: React.FC = () => {
 
   // ✅ In use below (top success banner + import success)
   const [showSuccess, setShowSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   // ✅ In use below (import error message)
   const [importErr, setImportErr] = useState<string | null>(null);
@@ -60,25 +71,53 @@ export const Settings: React.FC = () => {
   }, [logout, navigate]);
 
   // ✅ Uses brokerUrl state; shows success banner
-  const handleSave = useCallback(() => {
-    localStorage.setItem("brokerUrl", brokerUrl);
-    // Save energy cost settings
+  const handleSave = useCallback(async () => {
+    setSaveError(null);
+    setShowSuccess(false);
+    setSavingSettings(true);
+
+    // Persist pricing/budget regardless of broker connection
     localStorage.setItem("monthlyBudget", String(monthlyBudget || 0));
     localStorage.setItem("touEnabled", touEnabled ? "true" : "false");
     localStorage.setItem("touPeakPrice", String(peakPrice || 0));
     localStorage.setItem("touOffpeakPrice", String(offpeakPrice || 0));
     localStorage.setItem("touOffpeakStart", offStart || "22:00");
     localStorage.setItem("touOffpeakEnd", offEnd || "06:00");
-    // Reconnect to apply new broker immediately
-    try {
-      mqttService.disconnect();
-      mqttService.connect(brokerUrl, { keepalive: 30, reconnectPeriod: 1000 });
-    } catch (err) {
-      console.error("MQTT reconnect failed:", err);
+
+    const trimmedBroker = brokerUrl.trim();
+    const previous = localStorage.getItem("brokerUrl") || "ws://localhost:9001/mqtt";
+    const brokerChanged = previous !== trimmedBroker;
+
+    if (brokerChanged) {
+      try {
+        await mqttService.connectAndWait(trimmedBroker, 4000, {
+          keepalive: 30,
+          reconnectPeriod: 1000,
+        });
+        localStorage.setItem("brokerUrl", trimmedBroker);
+        refreshBrokerConfig();
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to connect to broker";
+        setSaveError(message);
+        setSavingSettings(false);
+        return;
+      }
     }
+
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 3000);
-  }, [brokerUrl]);
+    setSavingSettings(false);
+  }, [
+    brokerUrl,
+    monthlyBudget,
+    touEnabled,
+    peakPrice,
+    offpeakPrice,
+    offStart,
+    offEnd,
+    refreshBrokerConfig,
+  ]);
 
   // ✅ Used by “Export Data (JSON)”
   const handleExportData = useCallback(() => {
@@ -346,11 +385,15 @@ export const Settings: React.FC = () => {
       </div>
 
       {/* Save & Logout */}
+      {saveError && (
+        <div className="text-red-400 text-sm">{saveError}</div>
+      )}
       <button
         onClick={handleSave}
-        className="w-full bg-green-500 hover:bg-green-600 text-white py-3 rounded-lg font-semibold"
+        disabled={savingSettings}
+        className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white py-3 rounded-lg font-semibold"
       >
-        Save Settings
+        {savingSettings ? "Saving..." : "Save Settings"}
       </button>
 
       <button

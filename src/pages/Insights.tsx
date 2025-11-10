@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { useEnergy } from "../contexts/EnergyContext";
 import {
   BarChart,
@@ -19,6 +19,31 @@ import {
 
 type Period = "day" | "week" | "month";
 type TrendMetric = "power" | "energy";
+
+type TrendPoint = {
+  time: string;
+  watts: number;
+  kwh: number;
+  avg?: number;
+};
+
+type TrendStats = {
+  todayTrend: TrendPoint[];
+  todayKwhTotal: number;
+};
+
+type DeviceBreakdownSlice = {
+  id: string;
+  name: string;
+  value: number;
+  cost: number;
+};
+
+type PieTooltipPayload = {
+  payload?: {
+    name?: string;
+  };
+};
 
 function formatMinute(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -42,7 +67,7 @@ export const Insights: React.FC = () => {
    * - Sums power across devices per minute
    * - Also includes approximate energy per minute (kWh): watts * (1/60) / 1000
    */
-  const { todayTrend, todayKwhTotal } = useMemo(() => {
+  const { todayTrend, todayKwhTotal }: TrendStats = useMemo(() => {
     // Build minute-level map of total watts across devices
     const perMinute = new Map<number, number>(); // minuteTs -> totalWatts
     Object.values(powerHistory).forEach((list) => {
@@ -65,7 +90,7 @@ export const Insights: React.FC = () => {
       buckets.set(bucketStart, entry);
     });
 
-    const chart = Array.from(buckets.entries())
+    const chart: TrendPoint[] = Array.from(buckets.entries())
       .sort((a, b) => a[0] - b[0])
       .map(([ts, agg]) => {
         const avgWatts = agg.count > 0 ? agg.sumWatts / agg.count : 0;
@@ -87,28 +112,28 @@ export const Insights: React.FC = () => {
 
   // Compute a simple moving average for readability (5-point window)
   const { trendWithAvg, maxY, peakValue, peakLabel } = useMemo(() => {
-    const data = todayTrend || [];
-    const key = metric === "power" ? "watts" : "kwh";
+    const data: TrendPoint[] = todayTrend || [];
+    const key: keyof Pick<TrendPoint, "watts" | "kwh"> = metric === "power" ? "watts" : "kwh";
     const win = 5;
     const avgArr = data.map((_, idx) => {
       const start = Math.max(0, idx - (win - 1));
       const slice = data.slice(start, idx + 1);
-      const sum = slice.reduce((s, d) => s + Number((d as any)[key] || 0), 0);
+      const sum = slice.reduce((s, d) => s + d[key], 0);
       const avg = sum / slice.length;
       return Number(avg.toFixed(metric === "power" ? 0 : 4));
     });
     const merged = data.map((d, i) => ({ ...d, avg: avgArr[i] }));
-    const maxRaw = Math.max(0, ...data.map((d) => Number((d as any)[key] || 0)));
+    const maxRaw = Math.max(0, ...data.map((d) => d[key]));
     const maxAvg = Math.max(0, ...avgArr);
     const maxYVal = Math.max(maxRaw, maxAvg);
     // Peak label from raw data
     let peakValue = 0;
     let peakTime = "";
     data.forEach((d) => {
-      const v = Number((d as any)[key] || 0);
+      const v = d[key];
       if (v > peakValue) {
         peakValue = v;
-        peakTime = (d as any).time as string;
+        peakTime = d.time;
       }
     });
     const peakLabel = metric === "power" ? `${peakValue.toLocaleString()} W` : `${peakValue.toFixed(3)} kWh`;
@@ -116,7 +141,7 @@ export const Insights: React.FC = () => {
   }, [todayTrend, metric]);
 
   // Device breakdown for Pie (kWh + cost)
-  const deviceBreakdown = useMemo(() => {
+  const deviceBreakdown = useMemo<DeviceBreakdownSlice[]>(() => {
     return devices
       .map((d) => ({ id: d.id, name: d.name, value: d.kwhToday, cost: d.kwhToday * tariff }))
       .filter((x) => x.value > 0)
@@ -159,6 +184,50 @@ export const Insights: React.FC = () => {
     return recs;
   }, [devices, todayKwhTotal]);
 
+  const formatLineTooltip = useCallback(
+    (value: number | string, name: string) => {
+      const numericValue = typeof value === "number" ? value : Number(value);
+      const isPowerMetric = metric === "power";
+      const metricName = isPowerMetric ? "watts" : "kwh";
+      if (name === metricName) {
+        const formatted = isPowerMetric
+          ? `${numericValue.toLocaleString()} W`
+          : `${numericValue.toFixed(3)} kWh`;
+        return [formatted, isPowerMetric ? "Power" : "Energy"];
+      }
+      if (name === "avg") {
+        const formatted = isPowerMetric
+          ? `${numericValue.toLocaleString()} W`
+          : `${numericValue.toFixed(3)} kWh`;
+        return [formatted, "Avg (5-pt)"];
+      }
+      return [value, name];
+    },
+    [metric]
+  );
+
+  const formatEnergyTooltip = useCallback(
+    (value: number | string) => [`${Number(value).toFixed(3)} kWh`, "Energy (kWh)"],
+    []
+  );
+
+  const formatPieTooltip = useCallback(
+    (
+      value: number | string,
+      _label: string,
+      payload?: PieTooltipPayload
+    ) => {
+      const sliceName =
+        typeof payload?.payload?.name === "string"
+          ? payload.payload.name
+          : "Device";
+      const numericValue = Number(value);
+      const slice = deviceBreakdown.find((d) => d.name === sliceName);
+      const cost = slice ? slice.cost : 0;
+      return [`${numericValue.toFixed(3)} kWh · ${currency} ${cost.toFixed(2)}`, sliceName];
+    },
+    [currency, deviceBreakdown]
+  );
   if (!hasDevices) {
     return <div className="text-center text-gray-400 mt-10">No devices connected. Connect a device to view insights.</div>;
   }
@@ -225,18 +294,7 @@ export const Insights: React.FC = () => {
                 />
                 <Tooltip
                   contentStyle={{ backgroundColor: "#1F2937", border: "none" }}
-                  formatter={(value: any, name: any) => {
-                    const isPower = metric === "power";
-                    if (name === (isPower ? "watts" : "kwh")) {
-                      const formatted = isPower ? `${Number(value).toLocaleString()} W` : `${Number(value).toFixed(3)} kWh`;
-                      return [formatted, isPower ? "Power" : "Energy"];
-                    }
-                    if (name === "avg") {
-                      const formatted = isPower ? `${Number(value).toLocaleString()} W` : `${Number(value).toFixed(3)} kWh`;
-                      return [formatted, "Avg (5-pt)"];
-                    }
-                    return [value, name];
-                  }}
+                  formatter={formatLineTooltip}
                 />
                 <Line
                   type="monotone"
@@ -271,7 +329,7 @@ export const Insights: React.FC = () => {
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="day" stroke="#9CA3AF" />
               <YAxis stroke="#9CA3AF" />
-              <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "none" }} formatter={(v: any) => [`${v} kWh`, "Energy (kWh)"]} />
+              <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "none" }} formatter={formatEnergyTooltip} />
               <Bar dataKey="kwh" fill="#22C55E" />
             </BarChart>
           </ResponsiveContainer>
@@ -283,7 +341,7 @@ export const Insights: React.FC = () => {
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="day" stroke="#9CA3AF" />
               <YAxis stroke="#9CA3AF" />
-              <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "none" }} formatter={(v: any) => [`${v} kWh`, "Energy (kWh)"]} />
+              <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "none" }} formatter={formatEnergyTooltip} />
               <Bar dataKey="kwh" fill="#22C55E" />
             </BarChart>
           </ResponsiveContainer>
@@ -321,11 +379,7 @@ export const Insights: React.FC = () => {
               </Pie>
               <Tooltip
                 contentStyle={{ backgroundColor: "#1F2937", border: "none" }}
-                formatter={(v: any, _n: any, p: any) => {
-                  const idx = p?.payload ? deviceBreakdown.findIndex((d) => d.name === p.payload.name) : -1;
-                  const cost = idx >= 0 ? deviceBreakdown[idx].cost : 0;
-                  return [`${Number(v).toFixed(3)} kWh • ${currency} ${(cost ?? 0).toFixed(2)}`, p?.payload?.name ?? "Device"];
-                }}
+                formatter={formatPieTooltip}
               />
             </PieChart>
           </ResponsiveContainer>

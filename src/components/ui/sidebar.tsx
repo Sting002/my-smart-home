@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { VariantProps, cva } from "class-variance-authority"
@@ -94,7 +95,9 @@ const SidebarProvider = React.forwardRef<
             _setOpen(val === "true")
           }
         }
-      } catch {}
+      } catch {
+        // Ignore cookie parsing errors and fall back to defaults
+      }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
     const open = openProp ?? _open

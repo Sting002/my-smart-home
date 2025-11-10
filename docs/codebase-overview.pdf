@@ -1,0 +1,138 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 3786 >>
+stream
+BT
+/F1 12 Tf
+72 720 Td
+(Smart Home Energy Monitor - Codebase Overview) Tj
+0 -14 Td
+0 -14 Td
+(1. Client Architecture) Tj
+0 -14 Td
+(- React 18 + Vite + Shadcn UI power the SPA; AuthProvider + EnergyProvider wrap routes) Tj
+0 -14 Td
+(\\(src/App.tsx:22\\).) Tj
+0 -14 Td
+(- ProtectedRoute enforces login plus onboarding before feature pages render) Tj
+0 -14 Td
+(\\(src/routes/ProtectedRoute.tsx:6\\).) Tj
+0 -14 Td
+(- Layout components \\(ConnectionStatus, BottomNav, Toaster\\) keep a consistent mobile) Tj
+0 -14 Td
+(friendly shell \\(src/components/AppLayout.tsx:14\\).) Tj
+0 -14 Td
+0 -14 Td
+(2. Realtime Data Flow) Tj
+0 -14 Td
+(- EnergyProvider hydrates devices, alerts, home profile, and billing fields from) Tj
+0 -14 Td
+(localStorage \\(src/contexts/EnergyContext.tsx:43\\).) Tj
+0 -14 Td
+(- After onboarding it connects to MQTT, subscribes to power/energy/alert topics, and) Tj
+0 -14 Td
+(builds rolling history \\(src/contexts/EnergyContext.tsx:114,162\\).) Tj
+0 -14 Td
+(- Toggle/update/add/remove actions publish MQTT commands and sync with /api/devices) Tj
+0 -14 Td
+(\\(src/contexts/EnergyContext.tsx:304-375\\).) Tj
+0 -14 Td
+(- mqttService centralizes connects, wildcard subscriptions, publishing, and disconnect) Tj
+0 -14 Td
+(logic \\(src/services/mqttService.ts:53-268\\).) Tj
+0 -14 Td
+0 -14 Td
+(3. Automations and Safeguards) Tj
+0 -14 Td
+(- Background runner reloads saved rules, fires notify/turnOff/scene actions, and tracks) Tj
+0 -14 Td
+(essential devices \\(src/contexts/EnergyContext.tsx:418-518\\).) Tj
+0 -14 Td
+(- Standby Kill shuts devices off after sustained low usage and offline devices raise) Tj
+0 -14 Td
+(warnings after 5 minutes \\(src/contexts/EnergyContext.tsx:556-606\\).) Tj
+0 -14 Td
+(- A budget watcher converts monthly plus TOU settings into 75/90/100 percent toasts) Tj
+0 -14 Td
+(\\(src/contexts/EnergyContext.tsx:612-646\\).) Tj
+0 -14 Td
+0 -14 Td
+(4. Feature Screens) Tj
+0 -14 Td
+(- Dashboard aggregates watts, today's kWh, estimated cost, top consumers, and the All Off) Tj
+0 -14 Td
+(command \\(src/pages/Dashboard.tsx:11-174\\).) Tj
+0 -14 Td
+(- Devices and AddDevice manage the catalog with filtering, zod validation, and icons) Tj
+0 -14 Td
+(\\(src/pages/Devices.tsx:6-74, src/pages/AddDevice.tsx:2-180\\).) Tj
+0 -14 Td
+(- DeviceDetail streams per device charts, edits metadata, and clears retained MQTT on) Tj
+0 -14 Td
+(delete \\(src/pages/DeviceDetail.tsx:9-199\\).) Tj
+0 -14 Td
+(- Automations builds custom scenes and threshold rules; Insights renders charts; Settings) Tj
+0 -14 Td
+(centralizes broker, TOU, budget, export, import, and reset) Tj
+0 -14 Td
+(\\(src/pages/Automations.tsx:25-220, src/pages/Insights.tsx:1-200,) Tj
+0 -14 Td
+(src/pages/Settings.tsx:1-220\\).) Tj
+0 -14 Td
+0 -14 Td
+(5. Backend Services) Tj
+0 -14 Td
+(- Express 5 server layers Helmet, rate limiting, CORS allowlist, CSRF token endpoint, and) Tj
+0 -14 Td
+(/api routers \\(Backend/server.cjs:26-120\\).) Tj
+0 -14 Td
+(- SQLite tables \\(users, devices, settings\\) plus auth middleware handle PBKDF2 hashing and) Tj
+0 -14 Td
+(signed cookies \\(Backend/db.cjs:9-34, Backend/middleware/auth.cjs:9-124\\).) Tj
+0 -14 Td
+(- Optional CSRF middleware pairs with the ensureCsrfToken helper on the client) Tj
+0 -14 Td
+(\\(Backend/middleware/csrf.cjs:8-27, src/api/client.ts:28-73\\).) Tj
+0 -14 Td
+0 -14 Td
+(6. Developer Utilities) Tj
+0 -14 Td
+(- test-simulator.cjs publishes power/energy/alert traffic and reacts to command topics) Tj
+0 -14 Td
+(\\(test-simulator.cjs:1-147\\).) Tj
+0 -14 Td
+(- scripts/clear-retained.cjs wipes retained MQTT topics so deleted devices stay deleted) Tj
+0 -14 Td
+(\\(scripts/clear-retained.cjs:1-82\\).) Tj
+0 -14 Td
+(- npm scripts such as sim, sim:retain, mqtt:clear, and export:ui-review streamline local) Tj
+0 -14 Td
+(workflows \\(package.json:6-15\\).) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000004079 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+4149
+%%EOF

@@ -1,0 +1,101 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 2734 >>
+stream
+BT
+/F1 12 Tf
+72 720 Td
+(Smart Home Energy Monitor ? Improvement Ideas) Tj
+0 -14 Td
+0 -14 Td
+(1. Modularize EnergyProvider \\(src/contexts/EnergyContext.tsx:1-660\\)) Tj
+0 -14 Td
+(- Why: The provider owns connection management, persistence, automation rules, alerts,) Tj
+0 -14 Td
+(budget logic, and device CRUD inside one 600+ line component. Splitting it into focused) Tj
+0 -14 Td
+(hooks \\(e.g., useDeviceStore, useAutomationRunner, useBudgetAlerts\\) would reduce re-render) Tj
+0 -14 Td
+(surface area, simplify testing, and allow lazy loading of heavy logic when specific) Tj
+0 -14 Td
+(screens need it.) Tj
+0 -14 Td
+0 -14 Td
+(2. Stabilize localStorage-driven effects \\(src/contexts/EnergyContext.tsx:114-141\\)) Tj
+0 -14 Td
+(- Why: Several effects list `localStorage.getItem\\("onboarded"\\)` and) Tj
+0 -14 Td
+(`localStorage.getItem\\("brokerUrl"\\)` as dependencies, creating new string references every) Tj
+0 -14 Td
+(render and causing reconnect attempts even when nothing changed. Reading the values once) Tj
+0 -14 Td
+(into state \\(or subscribing to the storage event\\) makes the dependency arrays stable and) Tj
+0 -14 Td
+(prevents unnecessary MQTT reconnect loops.) Tj
+0 -14 Td
+0 -14 Td
+(3. Validate broker changes before persisting \\(src/pages/Settings.tsx:63-81,) Tj
+0 -14 Td
+(src/pages/Onboarding.tsx:24-54\\)) Tj
+0 -14 Td
+(- Why: Settings currently saves the new broker URL and shows a success toast before) Tj
+0 -14 Td
+(checking whether `mqttService.connect` actually succeeds. When the URL is wrong, the app) Tj
+0 -14 Td
+(stays offline but keeps the bad value in storage. Reusing `connectAndWait` with proper) Tj
+0 -14 Td
+(error handling \\(and only persisting on success\\) keeps users from locking themselves out) Tj
+0 -14 Td
+(and gives clear feedback.) Tj
+0 -14 Td
+0 -14 Td
+(4. Debounce budget alert toasts \\(src/contexts/EnergyContext.tsx:612-646\\)) Tj
+0 -14 Td
+(- Why: Once the daily ratio crosses 75/90/100% the interval continues to send the same) Tj
+0 -14 Td
+(toast every minute, quickly overwhelming the UI. Tracking the last emitted level and only) Tj
+0 -14 Td
+(firing when the user crosses into a new band \\(or when the date changes\\) keeps alerts) Tj
+0 -14 Td
+(informative instead of noisy.) Tj
+0 -14 Td
+0 -14 Td
+(5. Consolidate auth token strategy \\(Backend/middleware/auth.cjs:1-124 vs) Tj
+0 -14 Td
+(Backend/utils/jwt.cjs:1-33\\)) Tj
+0 -14 Td
+(- Why: The backend ships both a custom HMAC token implementation and a) Tj
+0 -14 Td
+(jsonwebtoken-based helper that is never used. Maintaining two code paths invites drift and) Tj
+0 -14 Td
+(security regressions. Pick one approach \\(ideally the proven library\\) and delete the unused) Tj
+0 -14 Td
+(module to simplify audits and future hardening.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000003025 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+3095
+%%EOF

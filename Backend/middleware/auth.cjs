@@ -1,5 +1,6 @@
 // Backend/middleware/auth.cjs
 const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
 
 const {
   JWT_SECRET = "dev_secret_change_me",
@@ -23,41 +24,6 @@ function cookieParser() {
   };
 }
 
-/** Base64url helpers */
-function b64url(data) {
-  return Buffer.from(data).toString("base64url");
-}
-function b64urlJson(obj) {
-  return b64url(JSON.stringify(obj));
-}
-
-/** HMAC-based signed token (JWT-like, but no external lib) */
-function signToken(payload, secret) {
-  const header = { alg: "HS256", typ: "JWT" };
-  const p1 = b64urlJson(header);
-  const p2 = b64urlJson(payload);
-  const hmac = crypto.createHmac("sha256", secret);
-  hmac.update(`${p1}.${p2}`);
-  const sig = hmac.digest("base64url");
-  return `${p1}.${p2}.${sig}`;
-}
-
-function verifyToken(token, secret) {
-  const [p1, p2, sig] = token.split(".");
-  if (!p1 || !p2 || !sig) return null;
-  const hmac = crypto.createHmac("sha256", secret);
-  hmac.update(`${p1}.${p2}`);
-  const expected = hmac.digest("base64url");
-  if (expected !== sig) return null;
-  try {
-    const json = JSON.parse(Buffer.from(p2, "base64url").toString());
-    if (json.exp && Date.now() > json.exp) return null;
-    return json;
-  } catch {
-    return null;
-  }
-}
-
 /** Password hashing using PBKDF2 (no external dep) */
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -69,16 +35,23 @@ function verifyPassword(password, salt, expectedHash) {
   return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(expectedHash));
 }
 
+function signUserToken(data, maxAgeMs) {
+  const expiresInSeconds = Math.floor(maxAgeMs / 1000);
+  return jwt.sign(
+    {
+      sub: data.userId,
+      username: data.username,
+    },
+    JWT_SECRET,
+    { expiresIn: expiresInSeconds || undefined }
+  );
+}
+
+const isProd = String(process.env.NODE_ENV).toLowerCase() === "production";
+
 /** Issue auth cookie */
 function setAuthCookie(res, data, maxAgeMs = 1000 * 60 * 60 * 24 * 7) {
-  const payload = {
-    sub: data.userId,
-    username: data.username,
-    iat: Date.now(),
-    exp: Date.now() + maxAgeMs,
-  };
-  const token = signToken(payload, JWT_SECRET);
-  const isProd = String(process.env.NODE_ENV).toLowerCase() === "production";
+  const token = signUserToken(data, maxAgeMs);
   res.setHeader(
     "Set-Cookie",
     `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax${
@@ -89,7 +62,6 @@ function setAuthCookie(res, data, maxAgeMs = 1000 * 60 * 60 * 24 * 7) {
 
 /** Clear auth cookie */
 function clearAuthCookie(res) {
-  const isProd = String(process.env.NODE_ENV).toLowerCase() === "production";
   res.setHeader(
     "Set-Cookie",
     `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${
@@ -102,8 +74,14 @@ function clearAuthCookie(res) {
 function authenticate(req, _res, next) {
   const raw = req.cookies?.[COOKIE_NAME];
   if (!raw) return next();
-  const payload = verifyToken(raw, JWT_SECRET);
-  if (payload) req.user = payload;
+  try {
+    const payload = jwt.verify(raw, JWT_SECRET);
+    if (payload && typeof payload === "object") {
+      req.user = payload;
+    }
+  } catch {
+    // ignore invalid token
+  }
   next();
 }
 

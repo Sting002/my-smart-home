@@ -1,0 +1,49 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 1546 >>
+stream
+BT
+/F1 11 Tf
+1 0 0 1 50 780.00 Tm (Smart Home Energy Monitor - Security Recommendations) Tj
+1 0 0 1 50 764.00 Tm (Generated: 2025-11-10 17:49:24.847 UTC) Tj
+1 0 0 1 50 740.00 Tm (1. Lock down device/settings APIs and tenant data.) Tj
+1 0 0 1 50 724.00 Tm (   Require auth for GET /api/devices and /api/settings and store per-user records.) Tj
+1 0 0 1 50 708.00 Tm (   Add user_id ownership fields so one tenant cannot read another tenant's devices.) Tj
+1 0 0 1 50 684.00 Tm (2. Enforce strong secret and session management.) Tj
+1 0 0 1 50 668.00 Tm (   Fail fast if JWT_SECRET is unset, rotate keys, and keep secrets out of source control.) Tj
+1 0 0 1 50 652.00 Tm (   Always issue Secure SameSite=Strict cookies and shorten access token TTLs.) Tj
+1 0 0 1 50 628.00 Tm (3. Enable CSRF protection and tighten security headers.) Tj
+1 0 0 1 50 612.00 Tm (   Turn CSRF on by default, validate X-CSRF-Token, and drop 'unsafe-inline'/'eval' in CSP.) Tj
+1 0 0 1 50 588.00 Tm (4. Add adaptive login rate limiting and audit logging.) Tj
+1 0 0 1 50 572.00 Tm (   Layer IP+account lockouts on /auth/login and track auth/audit events for forensics.) Tj
+1 0 0 1 50 548.00 Tm (5. Require TLS plus authenticated MQTT transport.) Tj
+1 0 0 1 50 532.00 Tm (   Move defaults to https/wss, enforce broker cert validation, and require per-device creds.) Tj
+1 0 0 1 50 508.00 Tm (6. Protect data at rest and keep the SQLite DB out of the repo.) Tj
+1 0 0 1 50 492.00 Tm (   Store smarthome.db outside source control, add encryption/backup, and secure .env files.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001839 00000 n 
+trailer << /Size 6 /Root 1 0 R >>
+startxref
+1909
+%%EOF
