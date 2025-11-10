@@ -121,3 +121,4 @@ app.use((err, _req, res, _next) => {
 app.listen(PORT, () => {
   console.log(`Smart Home Backend on http://localhost:${PORT} (env: ${NODE_ENV})`);
 });
+  
