@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { useEnergy } from "../contexts/EnergyContext";
 import type { Device } from "@/utils/energyContextTypes";
+import { Snowflake, WashingMachine, Wind, Flame, Droplet, Microwave, Plug } from "lucide-react";
 
 const deviceTypes = [
   { value: "fridge", label: "Refrigerator", icon: "❄️" },
@@ -14,6 +15,16 @@ const deviceTypes = [
   { value: "microwave", label: "Microwave", icon: "📻" },
   { value: "default", label: "Other", icon: "🔌" },
 ] as const;
+
+const typeIcons = {
+  fridge: Snowflake,
+  washer: WashingMachine,
+  ac: Wind,
+  heater: Flame,
+  water: Droplet,
+  microwave: Microwave,
+  default: Plug,
+} as const;
 
 const schema = z.object({
   id: z.string().min(3, "ID must be at least 3 characters"),
@@ -208,7 +219,12 @@ const AddDevice: React.FC = () => {
                       : "border-gray-700 bg-gray-800 hover:bg-gray-700/60"
                   }`}
                 >
-                  <div className="text-2xl mb-1">{type.icon}</div>
+                  <div className="mb-1 text-white/90">
+                    {(() => {
+                      const Icon = typeIcons[type.value as keyof typeof typeIcons] || Plug;
+                      return <Icon className="w-6 h-6" />;
+                    })()}
+                  </div>
                   <div className="text-white text-sm">{type.label}</div>
                 </button>
               ))}

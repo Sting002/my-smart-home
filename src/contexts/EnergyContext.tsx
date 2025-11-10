@@ -31,6 +31,9 @@ const MAX_POINTS = Number(import.meta.env?.VITE_MAX_CHART_POINTS || 120);
 // Default broker if none saved during onboarding
 const DEFAULT_WS =
   import.meta.env?.VITE_MQTT_BROKER_URL || "ws://localhost:9001/mqtt";
+// Alerts TTL in minutes (defaults to 5). Can be overridden with
+// env VITE_ALERT_TTL_MINUTES or localStorage key 'alertTtlMins'.
+const ALERT_TTL_MINUTES = Number(import.meta.env?.VITE_ALERT_TTL_MINUTES || 5);
 
 export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -86,6 +89,21 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     localStorage.setItem("alerts", JSON.stringify(alerts));
   }, [alerts]);
+
+  // Auto-expire alerts older than TTL
+  useEffect(() => {
+    const timer = setInterval(() => {
+      try {
+        const override = Number(localStorage.getItem("alertTtlMins") || "");
+        const ttl = override > 0 ? override : ALERT_TTL_MINUTES;
+        const cutoff = Date.now() - ttl * 60_000;
+        setAlerts((prev) => prev.filter((a) => Number(a.timestamp || 0) >= cutoff));
+      } catch {
+        // ignore
+      }
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("homeId", homeId);
@@ -239,19 +257,34 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
           ? "warning"
           : "info";
 
+      // Ignore alerts from devices the user explicitly deleted/blocked
+      const deviceId =
+        typeof payload["deviceId"] === "string"
+          ? (payload["deviceId"] as string)
+          : undefined;
+      if (deviceId && blockedDeviceIds.includes(deviceId)) return;
+
+      const id = deviceId
+        ? `device:${deviceId}`
+        : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
       const alert: Alert = {
-        id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        id,
         type: sev,
         message: String(payload["message"] ?? payload["type"] ?? "Alert"),
         timestamp: Number(payload["ts"] ?? Date.now()),
-        deviceId:
-          typeof payload["deviceId"] === "string"
-            ? (payload["deviceId"] as string)
-            : undefined,
-        payload,
+        deviceId,
+        payload: { ...payload, kind: "mqtt" },
       };
 
-      setAlerts((prev) => [alert, ...prev].slice(0, 50));
+      // Upsert: only one active alert per device
+      if (deviceId) {
+        setAlerts((prev) => {
+          const rest = prev.filter((a) => a.deviceId !== deviceId);
+          return [alert, ...rest].slice(0, 50);
+        });
+      } else {
+        setAlerts((prev) => [alert, ...prev].slice(0, 50));
+      }
     };
 
     // Subscribe when connected
@@ -265,7 +298,7 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
       mqttService.unsubscribe(energyPattern, onEnergy);
       mqttService.unsubscribe(alertPattern, onAlert);
     };
-  }, [connected, homeId]);
+  }, [connected, homeId, blockedDeviceIds]);
 
   // ===== Public actions =====
   const toggleDevice = useCallback(
@@ -345,6 +378,8 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
       const { [deviceId]: _omit, ...rest } = prev;
       return rest;
     });
+    // Remove any alerts associated with this device
+    setAlerts((prev) => prev.filter((a) => a.deviceId !== deviceId));
     // Prevent auto-recreate from incoming MQTT messages
     setBlockedDeviceIds((prev) => (prev.includes(deviceId) ? prev : [...prev, deviceId]));
   }, []);
@@ -543,23 +578,30 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       }
 
-      // ---- Device Health Alerts (offline > 5 min) ----
+      // ---- Device Health Alerts (offline > 5 min; single per device, updates in-place) ----
       for (const d of devices) {
-        const offlineFor = now - (Number(d.lastSeen || 0));
+        const offlineFor = now - Number(d.lastSeen || 0);
         if (offlineFor > 5 * 60 * 1000) {
-          const last = offlineNotifiedRef.current[d.id] || 0;
-          if (now - last > 15 * 60 * 1000) {
-            offlineNotifiedRef.current[d.id] = now;
-            const alert = {
-              id: `${now}_${d.id}_offline`,
-              type: "warning" as const,
-              message: `${d.name} appears offline (${Math.floor(offlineFor / 60000)} min)`,
-              timestamp: now,
-              deviceId: d.id,
-              payload: { lastSeen: d.lastSeen },
-            };
-            setAlerts((prev) => [alert, ...prev].slice(0, 50));
-          }
+          const message = `${d.name} appears offline (${Math.floor(offlineFor / 60000)} min)`;
+          const alert = {
+            id: `device:${d.id}`,
+            type: "warning" as const,
+            message,
+            timestamp: now,
+            deviceId: d.id,
+            payload: { lastSeen: d.lastSeen, kind: "offline" },
+          };
+          setAlerts((prev) => {
+            const rest = prev.filter((a) => a.deviceId !== d.id);
+            return [alert, ...rest].slice(0, 50);
+          });
+        } else {
+          // Clear lingering offline alert if device is online/recent
+          setAlerts((prev) =>
+            prev.filter(
+              (a) => !(a.deviceId === d.id && (a.payload as any)?.kind === "offline")
+            )
+          );
         }
       }
     }, 5000);
