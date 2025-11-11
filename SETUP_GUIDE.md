@@ -1,15 +1,41 @@
 # ESP32 Setup Guide and App Integration
 
-This guide shows how to wire an ESP32, publish power/energy readings to MQTT, and connect the web app. It reflects the current app behavior (Vite on port 8080, onboarding, MQTT over WebSockets, and topic schemas).
+This guide walks through the end-to-end flow for bringing a physical ESP32 energy sensor into the Smart Home Energy Monitor stack. It covers firmware, broker configuration, and the React/Vite frontend so everything reflects the current code base (Vite dev server on port 8080, onboarding wizard, MQTT over WebSockets, and the latest topic schema).
 
-## Hardware Requirements
+---
 
-- ESP32 development board
-- Current/voltage sensor (INA219, ACS712, or HLW8012)
-- Relay module (optional, for device command testing)
-- 5V power supply and jumper wires
+## 1. System Overview
 
-## Wiring (INA219 example)
+```
+ESP32 (sensors)  -->  Mosquitto (MQTT 1883 + WS 9001)  -->  Smart Home web app
+                                              |
+                                              +-- Optional tools (MQTT Explorer, mosquitto_sub)
+```
+
+- ESP32 devices publish sensor payloads over plain MQTT (TCP/1883).
+- The web UI runs in the browser and uses MQTT over WebSockets (default `ws://localhost:9001/mqtt`) via `mqttService`.
+- Device metadata, automations, and alerts live in localStorage and (optionally) the backend API exposed under `/api`.
+
+For a tooling-first setup that uses MQTT Explorer, see `docs/esp32-mqtt-explorer-setup.md`.
+
+---
+
+## 2. Hardware and Software Requirements
+
+| Component | Notes |
+| --- | --- |
+| ESP32 dev board | Any Arduino-compatible board (DevKit V1, WROOM, etc.). |
+| Sensor | INA219 (I2C), ACS712 (analog), HLW8012, or any watt-measuring setup. INA219 wiring is shown below. |
+| Optional relay | Useful if you plan to act on `cmd` topics. Drive it through a transistor if needed. |
+| Power + cabling | Stable 5 V USB supply and jumpers. |
+| Development tools | Arduino IDE >= 2.x (or PlatformIO) with ESP32 board support. |
+| Arduino libraries | `PubSubClient`, `Wire`, and the sensor library (e.g., `Adafruit INA219`). |
+| MQTT broker | Mosquitto or another broker you can configure with both TCP and WebSocket listeners. |
+| Debug tools | `mosquitto_sub`, MQTT Explorer, or the repo's simulator (`npm run sim`). |
+
+---
+
+## 3. Wiring (INA219 reference)
 
 ```
 ESP32          INA219
@@ -20,25 +46,33 @@ GPIO21 --->    SDA
 GPIO22 --->    SCL
 ```
 
-Relay (optional): `GPIO23 -> IN`, `5V -> VCC`, `GND -> GND`.
+Optional relay for command testing:
+```
+GPIO23 ---> IN   (use a transistor if the relay needs more current)
+5V     ---> VCC
+GND    ---> GND
+```
 
-## MQTT Topics and Payloads
+---
 
-- Power (sensor -> app): `home/{homeId}/sensor/{deviceId}/power`
-  - `{ watts: number, voltage?: number, current?: number, ts?: number }`
-  - If `ts` is omitted, the app uses its local time. If you send `ts`, use epoch milliseconds.
-  - The UI considers a device `ON` when `watts > 5`.
-- Energy (sensor -> app): `home/{homeId}/sensor/{deviceId}/energy`
-  - `{ wh_total: number, ts?: number }` (app computes kWh today as `wh_total / 1000`)
-- Command (app -> device): `home/{homeId}/cmd/{deviceId}/set`
-  - `{ on: boolean }`
-  - The app updates UI optimistically (instant toggle) and sets `lastSeen` to now; device readings should follow.
+## 4. MQTT Topics and Payloads
 
-Device is considered ON in the UI when `watts > 5`.
+| Direction | Topic | Payload |
+| --- | --- | --- |
+| Sensor -> App (power) | `home/{homeId}/sensor/{deviceId}/power` | `{ watts: number, voltage?: number, current?: number, ts?: number }` |
+| Sensor -> App (energy) | `home/{homeId}/sensor/{deviceId}/energy` | `{ wh_total: number, ts?: number }` |
+| App -> Device (command) | `home/{homeId}/cmd/{deviceId}/set` | `{ on: boolean }` |
 
-## ESP32 Firmware (Arduino)
+Key rules enforced by the app:
+- Devices are considered ON when `watts > 5`.
+- If you omit `ts`, the UI timestamps readings on receipt (safer unless your MCU clock is accurate).
+- `homeId` must match the value stored in the app (`localStorage.homeId`, default `home1`).
 
-The sketch below publishes power once/second and energy every 10s. It omits `ts` to let the app timestamp readings, avoiding clock sync issues.
+---
+
+## 5. ESP32 Firmware (Arduino)
+
+The sketch below publishes power every second and cumulative energy every 10 seconds.
 
 ```cpp
 #include <WiFi.h>
@@ -46,15 +80,12 @@ The sketch below publishes power once/second and energy every 10s. It omits `ts`
 #include <Wire.h>
 #include <Adafruit_INA219.h>
 
-// WiFi credentials
 const char* ssid = "YOUR_WIFI_SSID";
 const char* password = "YOUR_WIFI_PASSWORD";
 
-// MQTT Broker (TCP 1883 for device)
-const char* mqtt_server = "192.168.1.100";  // Broker IP
-const int mqtt_port = 1883;
+const char* mqtt_host = "192.168.1.100";
+const int   mqtt_port = 1883;
 
-// Device config
 const char* homeId = "home1";
 const char* deviceId = "device_001";
 
@@ -63,24 +94,24 @@ PubSubClient client(espClient);
 Adafruit_INA219 ina219;
 
 unsigned long lastPublish = 0;
-float totalWh = 0.0f;
 unsigned long lastEnergyUpdate = 0;
+float totalWh = 0.0f;
 
 void setup() {
   Serial.begin(115200);
   if (!ina219.begin()) {
     Serial.println("INA219 not found");
-    while (1) { delay(10); }
+    while (true) { delay(10); }
   }
 
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print(".");
+    Serial.print('.');
   }
-  Serial.println("\nWiFi connected");
+  Serial.println("\nWi-Fi connected");
 
-  client.setServer(mqtt_server, mqtt_port);
+  client.setServer(mqtt_host, mqtt_port);
   client.setCallback(mqttCallback);
 }
 
@@ -88,32 +119,33 @@ void loop() {
   if (!client.connected()) reconnect();
   client.loop();
 
-  // Publish power every 1s
-  if (millis() - lastPublish > 1000) {
+  const unsigned long now = millis();
+
+  if (now - lastPublish >= 1000) {
     publishPowerData();
-    lastPublish = millis();
+    lastPublish = now;
   }
 
-  // Publish cumulative energy every 10s
-  if (millis() - lastEnergyUpdate > 10000) {
+  if (now - lastEnergyUpdate >= 10000) {
     publishEnergyData();
-    lastEnergyUpdate = millis();
+    lastEnergyUpdate = now;
   }
 }
 
 void publishPowerData() {
-  float voltage = ina219.getBusVoltage_V();
-  float current = ina219.getCurrent_mA() / 1000.0;
-  float power = voltage * current; // W
+  const float voltage = ina219.getBusVoltage_V();
+  const float current = ina219.getCurrent_mA() / 1000.0f;
+  const float power = voltage * current;
 
-  // Integrate energy (Wh): W * seconds / 3600
-  totalWh += (power * 1.0f) / 3600.0f; // 1 second interval
+  totalWh += (power * 1.0f) / 3600.0f;
 
   char topic[96];
   snprintf(topic, sizeof(topic), "home/%s/sensor/%s/power", homeId, deviceId);
 
   char payload[160];
-  snprintf(payload, sizeof(payload), "{\"watts\":%.2f,\"voltage\":%.2f,\"current\":%.3f}", power, voltage, current);
+  snprintf(payload, sizeof(payload),
+           "{\"watts\":%.2f,\"voltage\":%.2f,\"current\":%.3f}",
+           power, voltage, current);
   client.publish(topic, payload);
 }
 
@@ -127,7 +159,6 @@ void publishEnergyData() {
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  // Example: {"on": true}
   char cmdTopic[96];
   snprintf(cmdTopic, sizeof(cmdTopic), "home/%s/cmd/%s/set", homeId, deviceId);
   if (strcmp(topic, cmdTopic) == 0) {
@@ -155,59 +186,77 @@ void reconnect() {
 }
 ```
 
-## Installation Steps
+> Add username/password parameters to `client.connect` if your broker enforces authentication. For TLS, use `WiFiClientSecure` and load your CA certificates.
 
-1. Install Arduino IDE and ESP32 board support.
-2. Install libraries: PubSubClient (Nick O'Leary), Adafruit INA219, Wire.
-3. Configure the sketch: Wi‑Fi credentials, `mqtt_server`, unique `deviceId`, and `homeId`.
-4. Upload to the ESP32 and monitor the serial output.
+---
 
-## Verify MQTT
+## 6. Install and Flash
 
-On the broker host:
+1. **Arduino IDE**: install the ESP32 core via Boards Manager (`https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json`).
+2. **Libraries**: install `PubSubClient`, `Adafruit INA219`, and `Wire`.
+3. **Configure**: edit Wi-Fi credentials, `mqtt_host`, and assign a unique `deviceId` per physical device.
+4. **Upload**: flash the board and keep the Serial Monitor open for Wi-Fi/MQTT logs.
+
+---
+
+## 7. Broker Verification
+
+Use CLI tools:
 
 ```bash
-# Subscribe to all home topics
+# Subscribe to every Smart Home topic
 mosquitto_sub -h localhost -t 'home/#' -v
 
-# Expected (examples):
-# home/home1/sensor/device_001/power {"watts":123.45,"voltage":229.80,"current":0.537}
-# home/home1/sensor/device_001/energy {"wh_total":12.34}
-```
-
-To simulate a command from the app (or test without the app):
-
-```bash
+# Publish a command to the device
 mosquitto_pub -h localhost -t 'home/home1/cmd/device_001/set' -m '{"on":false}'
 ```
 
-## Connect the Web App
+Or use MQTT Explorer (see the dedicated guide) to visualize payloads and retained messages.
 
-- Start the app in dev mode: `npm run dev` and open `http://localhost:8080`.
-- On first run you'll see onboarding at `/onboarding`.
-  - Enter the broker WebSocket URL. Common values:
-    - Direct Mosquitto WS: `ws://<broker-host>:9001` (path is `/` by default)
-    - Behind Nginx: `ws(s)://<your-domain>/mqtt` (when `/mqtt` proxies to Mosquitto)
-  - Note: The app's default is `ws://localhost:9001/mqtt`. If your broker exposes WS at root `/`, remove `/mqtt`.
-- After connecting, you'll land on the Dashboard. Devices appear automatically as they publish.
+---
 
-## App Thresholds, Auto-off and Essential Devices
+## 8. Connect the Web App
 
-- Each device has a Threshold (W) and Auto-off (minutes). When a device stays below threshold for the configured minutes while ON, the app can auto-send OFF (Standby Kill).
-- Mark “Essential device” in the device edit form to keep it ON when activating Away/Sleep/Workday scenes.
-- Edit these in Device Detail (Edit button) or in-place numeric fields.
+1. Install dependencies and start Vite:
+   ```bash
+   npm install
+   npm run dev
+   ```
+   The app runs on `http://localhost:8080`.
 
-## Tips and Pitfalls
+2. Complete onboarding at `/onboarding`:
+   - **Broker URL**: enter the WebSocket endpoint (e.g., `ws://localhost:9001/mqtt`). This value lands in `localStorage.brokerUrl` and powers `useMqttLifecycle`.
+   - **Home ID**: match the firmware (`home1` by default). Stored in `localStorage.homeId`.
+   - The onboarding flow marks `localStorage.onboarded = true`, allowing ProtectedRoute to let you into `/dashboard`.
 
-- Timestamps: If you send `ts`, use epoch milliseconds. Otherwise omit `ts` and let the app timestamp.
-- Home ID: Must match on the device and in app Settings (`homeId`).
-- Retained data: To clear retained power/energy topics, use Settings -> Clear All Data or the helper script `npm run mqtt:clear`.
-- WebSockets path: Ensure your WS URL path matches your broker/proxy (root `/` vs `/mqtt`).
-- Thresholds and scenes: Adjust device threshold W and automations in the app to test command flows.
-- Home ID: Ensure your device topics and the app’s Settings → Home ID match (default `home1`).
+3. Later adjustments happen in **Settings -> MQTT Connection**:
+   - Updating the Broker URL triggers `mqttService.connectAndWait` with keepalive and reconnect options before persisting the value.
+   - The same page covers tariff, currency, monthly budget, TOU pricing, and JSON export/import.
 
-## What’s Next
+---
 
-- Devices tab: add/edit devices; open a device to view live power chart and settings.
-- Automations: test built‑in scenes (Away/Sleep/Workday/Weekend) and custom scenes or rules.
-- Settings: set currency/tariff, change broker URL, export/import data.
+## 9. App Features That Affect Devices
+
+- **Threshold & Auto-off**: set per-device watt thresholds and idle timers to enable Standby Kill logic.
+- **Essential flag**: keep critical loads powered when Away/Sleep/Workday scenes run.
+- **Scenes & automations**: the `/automations` page lets you script rules that publish MQTT commands based on time, budget, or sensor state.
+- **Budget alerts**: toast notifications fire at 75/90/100% of the computed daily budget (see `useBudgetAlerts`).
+
+---
+
+## 10. Tips and Pitfalls
+
+- Prefer omitting `ts` so the frontend timestamps each reading.
+- Keep `homeId` consistent between firmware, topics, and the Settings page.
+- Use Settings -> Clear All Data or `npm run mqtt:clear` to wipe retained topics between tests.
+- Ensure your broker exposes a WebSocket listener (e.g., Mosquitto `listener 9001` + `protocol websockets`). If you proxy through Nginx, forward `Upgrade`/`Connection` headers.
+- `npm run sim` is handy for validating UI flows when hardware is offline.
+- If MQTT Explorer shows readings but the UI is empty, double-check the broker URL in localStorage and watch the connection toast in the UI (`useMqttLifecycle`).
+
+---
+
+## 11. Next Steps
+
+- Add more ESP32 devices (unique `deviceId` per board) and mark essential loads.
+- Expand automations for Away/Sleep scenes and standby kill behavior.
+- Wire up the optional backend (`Backend/server.cjs`) so `/api` routes persist devices/settings beyond localStorage.

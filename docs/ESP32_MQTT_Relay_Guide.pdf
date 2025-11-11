@@ -1,0 +1,149 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 3263 >>
+stream
+BT
+/F1 11 Tf
+16 TL
+72 770 Td
+(ESP32 MQTT Relay Switch Guide) Tj
+T*
+( ) Tj
+T*
+(1. Overview) Tj
+T*
+(Use an ESP32 and SRD-05VDC-SL-C relay module to toggle a device through MQTT.) Tj
+T*
+(The ESP32 listens on smarthome/relay1/cmd and reports status to smarthome/relay1/status.) Tj
+T*
+( ) Tj
+T*
+(2. Bill of Materials) Tj
+T*
+(ESP32 DevKit with 3.3 V logic.) Tj
+T*
+(SRD-05VDC-SL-C relay board with driver or optocoupler input.) Tj
+T*
+(5 V relay supply plus USB power for the ESP32 and a shared ground.) Tj
+T*
+(MQTT broker such as Mosquitto running on your computer, Pi, or cloud VM.) Tj
+T*
+(USB cable, Dupont wires, safe enclosure, and the load you plan to control.) Tj
+T*
+( ) Tj
+T*
+(3. Wiring) Tj
+T*
+(ESP32 5V \(VIN\) to relay VCC or external 5 V output.) Tj
+T*
+(ESP32 GND to relay GND to keep signal reference common.) Tj
+T*
+(ESP32 GPIO23 \(example\) to relay IN; adjust pin in firmware if needed.) Tj
+T*
+(Relay COM in series with mains live feed, NO to the device live input, neutral remains direct.) Tj
+T*
+(Confirm whether the relay board is active-low or active-high before flashing firmware.) Tj
+T*
+(Keep mains wiring isolated, add a fuse, and secure everything in an enclosure.) Tj
+T*
+( ) Tj
+T*
+(4. MQTT Topics and Payloads) Tj
+T*
+(Command topic: smarthome/relay1/cmd with payloads ON, OFF, or TOGGLE.) Tj
+T*
+(Status topic: smarthome/relay1/status with payloads ON, OFF, or ERR.) Tj
+T*
+(Use retained messages if you want late listeners to know the last state.) Tj
+T*
+( ) Tj
+T*
+(5. System Flow) Tj
+T*
+(Boot: ESP32 connects to Wi-Fi then authenticates with the MQTT broker.) Tj
+T*
+(It subscribes to the command topic and waits for payloads.) Tj
+T*
+(When a valid command arrives it drives the relay pin and publishes the new state.) Tj
+T*
+(Invalid payloads trigger an error status message so operators can react.) Tj
+T*
+( ) Tj
+T*
+(6. Broker Setup) Tj
+T*
+(Install and start Mosquitto with: mosquitto -v -c mosquitto.conf.) Tj
+T*
+(Open TCP port 1883 on the host firewall and forward it if you need remote access.) Tj
+T*
+(Enable username and password or TLS and copy the credentials into the sketch.) Tj
+T*
+( ) Tj
+T*
+(7. Testing) Tj
+T*
+(Publish: mosquitto_pub -h <broker_ip> -t smarthome/relay1/cmd -m ON.) Tj
+T*
+(Subscribe: mosquitto_sub -h <broker_ip> -t smarthome/relay1/status.) Tj
+T*
+(Listen for the relay click and verify the controlled device switches correctly.) Tj
+T*
+( ) Tj
+T*
+(8. Safety) Tj
+T*
+(Mains voltage is hazardous; keep relay boards and wiring in closed enclosures.) Tj
+T*
+(Use proper gauge wires, add strain relief, and never touch live terminals.) Tj
+T*
+(Consider adding a snubber or MOV across inductive loads to protect the relay.) Tj
+T*
+( ) Tj
+T*
+(9. Troubleshooting) Tj
+T*
+(No Wi-Fi: double-check SSID and password and stay on 2.4 GHz networks.) Tj
+T*
+(No MQTT: verify broker IP, credentials, and that port 1883 is reachable.) Tj
+T*
+(Relay inverted: flip the RELAY_ACTIVE_LOW flag in the firmware.) Tj
+T*
+(Relay chatters: be sure the ESP32 ground ties to the relay supply ground.) Tj
+T*
+( ) Tj
+T*
+(10. Next Steps) Tj
+T*
+(Integrate with Home Assistant or Node-RED dashboards.) Tj
+T*
+(Add TLS certificates or per-device credentials for secure deployments.) Tj
+T*
+(Duplicate topics and pins to add more relay channels as your project grows.) Tj
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+3626
+%%EOF
