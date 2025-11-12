@@ -2,14 +2,11 @@
 import React from "react";
 import { Outlet } from "react-router-dom";
 
-import { useAuth } from "@/contexts/AuthContext";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { Toaster } from "@/components/ui/toaster";
 import { BottomNav } from "@/components/BottomNav";
 
 const AppLayout: React.FC = () => {
-  const { user } = useAuth();
-
   return (
     <>
       <ConnectionStatus />

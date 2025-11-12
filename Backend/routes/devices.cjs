@@ -1,13 +1,12 @@
 // Backend/routes/devices.cjs
 const express = require("express");
 const { db } = require("../db.cjs");
-const { authenticate, requireAuth } = require("../middleware/auth.cjs");
+const { authenticate, requireAuth, requireAdmin } = require("../middleware/auth.cjs");
 
 const router = express.Router();
 router.use(express.json());
 router.use(authenticate);
 
-/** GET /api/devices */
 router.get("/", (_req, res) => {
   db.all(`SELECT * FROM devices`, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -16,7 +15,6 @@ router.get("/", (_req, res) => {
   });
 });
 
-/** POST /api/devices */
 router.post("/", requireAuth, (req, res) => {
   const d = req.body || {};
   if (!d.id) return res.status(400).json({ error: "device id required" });
@@ -53,8 +51,7 @@ router.post("/", requireAuth, (req, res) => {
   );
 });
 
-/** DELETE /api/devices/:id */
-router.delete("/:id", requireAuth, (req, res) => {
+router.delete("/:id", requireAdmin, (req, res) => {
   const id = req.params.id;
   if (!id) return res.status(400).json({ error: "device id required" });
   db.run(`DELETE FROM devices WHERE id = ?`, [id], function (err) {

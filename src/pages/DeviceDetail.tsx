@@ -5,12 +5,15 @@ import { mqttService, PowerReading } from "../services/mqttService";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { toast } from "@/hooks/use-toast";
 import { removeDevice as apiRemoveDevice } from "@/api/devices";
+import { useAuth } from "@/contexts/AuthContext";
 
 export const DeviceDetail: React.FC = () => {
   const { deviceId } = useParams<{ deviceId: string }>();
   const { devices, updateDevice, homeId, toggleDevice, removeDevice } = useEnergy();
   const navigate = useNavigate();
   const device = devices.find(d => d.id === deviceId);
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   const [powerHistory, setPowerHistory] = useState<PowerReading[]>([]);
   const [saving, setSaving] = useState(false);
@@ -108,6 +111,13 @@ export const DeviceDetail: React.FC = () => {
 
   const onDelete = useCallback(async () => {
     if (!device) return;
+    if (!isAdmin) {
+      toast({
+        title: "Admin only",
+        description: "Only administrators can delete devices.",
+      });
+      return;
+    }
     const ok = window.confirm(`Delete device "${device.name}" (${device.id})? This cannot be undone.`);
     if (!ok) return;
     try {
@@ -137,7 +147,7 @@ export const DeviceDetail: React.FC = () => {
     } catch (e) {
       toast({ title: "Failed to delete", description: `Could not delete ${device.name}` });
     }
-  }, [device, homeId, navigate, removeDevice]);
+  }, [device, homeId, isAdmin, navigate, removeDevice]);
 
   if (!device) {
     return (
@@ -323,12 +333,18 @@ export const DeviceDetail: React.FC = () => {
 
       <div className="bg-gray-800 rounded-xl p-6">
         <h2 className="text-white font-semibold mb-4">Danger Zone</h2>
-        <button
-          onClick={onDelete}
-          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold"
-        >
-          Delete Device
-        </button>
+        {isAdmin ? (
+          <button
+            onClick={onDelete}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold"
+          >
+            Delete Device
+          </button>
+        ) : (
+          <p className="text-yellow-400 text-sm">
+            Only administrators can delete devices.
+          </p>
+        )}
       </div>
     </div>
   );

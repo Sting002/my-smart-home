@@ -8,9 +8,8 @@ const bodyParser = require("body-parser");
 const { cookieParser } = require("./middleware/auth.cjs");
 const { createHelmet, apiLimiter } = require("./middleware/security.cjs");
 const { issueCsrfToken, checkCsrf, CSRF_ENABLED } = require("./middleware/csrf.cjs");
-require("./db.cjs"); // ensure DB initializes
+require("./db.cjs");
 
-// Routers
 const authRouter = require("./routes/auth.cjs");
 const devicesRouter = require("./routes/devices.cjs");
 const settingsRouter = require("./routes/settings.cjs");
@@ -23,13 +22,11 @@ const {
 
 const app = express();
 
-// ---------- Security middleware ----------
 app.use(createHelmet());
 app.use(cookieParser());
 app.use(bodyParser.json({ limit: "1mb" }));
 app.use(apiLimiter);
 
-// ---------- CORS ----------
 const allowed = CORS_ORIGINS.split(",").map((s) => s.trim());
 const corsMw = cors({
   origin(origin, cb) {
@@ -40,13 +37,11 @@ const corsMw = cors({
   credentials: true,
 });
 app.use(corsMw);
-app.options(/.*/, corsMw); // Express 5-compatible
+app.options(/.*/, corsMw);
 
-// ---------- Static ----------
 const publicDir = path.join(__dirname, "public");
 app.use(express.static(publicDir));
 
-// ---------- CSP (dev-friendly; tighten for prod) ----------
 app.use((_req, res, next) => {
   const csp = [
     "default-src 'self' 'unsafe-inline' data: blob:;",
@@ -60,24 +55,19 @@ app.use((_req, res, next) => {
   next();
 });
 
-// ---------- Health ----------
 app.get("/health", (_req, res) =>
   res.json({ status: "ok", time: Date.now(), csrf: CSRF_ENABLED })
 );
 
-// ---------- CSRF token (optional) ----------
 app.get("/api/csrf", issueCsrfToken);
 
-// ---------- API (with optional CSRF check for state-changing ops) ----------
 app.use("/api/auth", checkCsrf, authRouter);
 app.use("/api/devices", checkCsrf, devicesRouter);
 app.use("/api/settings", checkCsrf, settingsRouter);
 
-// Backward-compatible routes (no /api prefix)
 app.use("/devices", checkCsrf, devicesRouter);
 app.use("/settings", checkCsrf, settingsRouter);
 
-// ---------- Default landing ----------
 app.get("/", (_req, res) => {
   res.send(`
     <html>
@@ -94,7 +84,7 @@ app.get("/", (_req, res) => {
         </style>
       </head>
       <body>
-        <h2>✅ Smart Home Backend is running!</h2>
+        <h2>Smart Home Backend is running!</h2>
         <p class="time">Server time: ${new Date().toLocaleString()}</p>
         <h3>Endpoints</h3>
         <ul>
@@ -109,10 +99,8 @@ app.get("/", (_req, res) => {
   `);
 });
 
-// ---------- 404 ----------
 app.use((_req, res) => res.status(404).json({ error: "Not found" }));
 
-// ---------- Error handler ----------
 app.use((err, _req, res, _next) => {
   console.error("Server error:", err);
   res.status(500).json({ error: "Internal server error" });
@@ -121,4 +109,3 @@ app.use((err, _req, res, _next) => {
 app.listen(PORT, () => {
   console.log(`Smart Home Backend on http://localhost:${PORT} (env: ${NODE_ENV})`);
 });
-  

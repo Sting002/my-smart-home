@@ -1,7 +1,7 @@
 // Backend/routes/settings.cjs
 const express = require("express");
 const { db } = require("../db.cjs");
-const { authenticate, requireAuth } = require("../middleware/auth.cjs");
+const { authenticate, requireAuth, requireAdmin } = require("../middleware/auth.cjs");
 
 const router = express.Router();
 router.use(express.json());
@@ -12,7 +12,6 @@ function normalizeKey(raw) {
   return raw.trim();
 }
 
-/** GET /api/settings/:key */
 router.get(/^\/(.+)$/, (req, res) => {
   const key = normalizeKey(req.params[0]);
   if (!key) return res.status(400).json({ error: "key required" });
@@ -22,7 +21,6 @@ router.get(/^\/(.+)$/, (req, res) => {
   });
 });
 
-/** POST /api/settings { key, value } */
 router.post("/", requireAuth, (req, res) => {
   const { key: rawKey, value } = req.body || {};
   const key = normalizeKey(rawKey);
@@ -39,8 +37,7 @@ router.post("/", requireAuth, (req, res) => {
   );
 });
 
-/** DELETE /api/settings/:key */
-router.delete(/^\/(.+)$/, requireAuth, (req, res) => {
+router.delete(/^\/(.+)$/, requireAdmin, (req, res) => {
   const key = normalizeKey(req.params[0]);
   if (!key) return res.status(400).json({ error: "key required" });
 

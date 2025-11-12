@@ -7,7 +7,6 @@ const {
   COOKIE_NAME = "smarthome_token",
 } = process.env;
 
-/** Lightweight cookie parser (no external dep) */
 function cookieParser() {
   return function (req, _res, next) {
     const header = req.headers.cookie || "";
@@ -24,12 +23,12 @@ function cookieParser() {
   };
 }
 
-/** Password hashing using PBKDF2 (no external dep) */
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString("hex");
   const hash = crypto.pbkdf2Sync(password, salt, 310000, 32, "sha256").toString("hex");
   return { salt, hash };
 }
+
 function verifyPassword(password, salt, expectedHash) {
   const hash = crypto.pbkdf2Sync(password, salt, 310000, 32, "sha256").toString("hex");
   return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(expectedHash));
@@ -41,6 +40,7 @@ function signUserToken(data, maxAgeMs) {
     {
       sub: data.userId,
       username: data.username,
+      role: data.role || "user",
     },
     JWT_SECRET,
     { expiresIn: expiresInSeconds || undefined }
@@ -49,28 +49,21 @@ function signUserToken(data, maxAgeMs) {
 
 const isProd = String(process.env.NODE_ENV).toLowerCase() === "production";
 
-/** Issue auth cookie */
 function setAuthCookie(res, data, maxAgeMs = 1000 * 60 * 60 * 24 * 7) {
   const token = signUserToken(data, maxAgeMs);
   res.setHeader(
     "Set-Cookie",
-    `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax${
-      isProd ? "; Secure" : ""
-    }`
+    `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax${isProd ? "; Secure" : ""}`
   );
 }
 
-/** Clear auth cookie */
 function clearAuthCookie(res) {
   res.setHeader(
     "Set-Cookie",
-    `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${
-      isProd ? "; Secure" : ""
-    }`
+    `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${isProd ? "; Secure" : ""}`
   );
 }
 
-/** Auth middleware: populates req.user if cookie valid */
 function authenticate(req, _res, next) {
   const raw = req.cookies?.[COOKIE_NAME];
   if (!raw) return next();
@@ -85,9 +78,16 @@ function authenticate(req, _res, next) {
   next();
 }
 
-/** Require-auth guard */
 function requireAuth(req, res, next) {
   if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ error: "Admin privileges required" });
+  }
   next();
 }
 
@@ -99,4 +99,5 @@ module.exports = {
   clearAuthCookie,
   authenticate,
   requireAuth,
+  requireAdmin,
 };

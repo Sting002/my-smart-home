@@ -18,6 +18,7 @@ import { Insights } from "@/pages/Insights";
 import Settings from "@/pages/Settings";
 import AddDevice from "@/pages/AddDevice";
 import { Onboarding } from "@/pages/Onboarding";
+import AdminDashboard from "@/pages/AdminDashboard";
 
 export default function App() {
   return (
@@ -50,6 +51,7 @@ export default function App() {
                 <Route path="insights" element={<Insights />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="onboarding" element={<Onboarding />} />
+                <Route path="admin" element={<AdminDashboard />} />
                 <Route path="*" element={<NotFound />} />
               </Route>
             </Route>

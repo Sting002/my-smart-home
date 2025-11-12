@@ -58,7 +58,8 @@ export const Settings: React.FC = () => {
   // ✅ In use below (Import button)
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const navigate = useNavigate();
 
   const handleLogout = useCallback(async () => {
@@ -164,6 +165,10 @@ export const Settings: React.FC = () => {
 
   // ✅ Used by “Clear All Data”
   const onResetAll = useCallback(async () => {
+    if (!isAdmin) {
+      alert("Only administrators can clear all data.");
+      return;
+    }
     const confirmTxt = prompt('Type "RESET" to clear all local data (devices, settings).');
     if (confirmTxt !== "RESET") return;
 
@@ -198,13 +203,28 @@ export const Settings: React.FC = () => {
 
     localStorage.clear();
     window.location.reload();
-  }, [devices, homeId, brokerUrl]);
+  }, [devices, homeId, brokerUrl, isAdmin]);
 
   return (
     <div className="space-y-6">
       {showSuccess && (
         <div className="bg-green-500/20 border border-green-500 text-green-400 rounded-lg p-3">
           Settings saved successfully!
+        </div>
+      )}
+
+      {user?.role === "admin" && (
+        <div className="bg-gray-800 rounded-xl p-6">
+          <h2 className="text-white font-semibold mb-4">Admin Tools</h2>
+          <p className="text-gray-400 text-sm mb-4">
+            Manage user access and other privileged actions from the admin dashboard.
+          </p>
+          <button
+            onClick={() => navigate("/admin")}
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-lg font-semibold"
+          >
+            Open Admin Dashboard
+          </button>
         </div>
       )}
 
@@ -377,10 +397,16 @@ export const Settings: React.FC = () => {
 
           <button
             onClick={onResetAll}
-            className="w-full bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-semibold"
+            disabled={!isAdmin}
+            className="w-full bg-red-500 hover:bg-red-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white py-3 rounded-lg font-semibold"
           >
             Clear All Data
           </button>
+          {!isAdmin && (
+            <p className="text-xs text-yellow-400 text-center">
+              Only administrators can clear stored data.
+            </p>
+          )}
         </div>
       </div>
 
