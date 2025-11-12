@@ -2,7 +2,7 @@
 const { db } = require("../db.cjs");
 
 db.serialize(() => {
-db.all("SELECT id, username, role, created_at FROM users", (err, rows) => {
+db.all("SELECT id, username, role, must_change_password, created_at FROM users", (err, rows) => {
     if (err) console.error(err);
     else console.log("Users:", rows);
   });

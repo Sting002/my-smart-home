@@ -41,6 +41,7 @@ function signUserToken(data, maxAgeMs) {
       sub: data.userId,
       username: data.username,
       role: data.role || "user",
+      mustChangePassword: data.mustChangePassword ? true : false,
     },
     JWT_SECRET,
     { expiresIn: expiresInSeconds || undefined }

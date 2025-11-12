@@ -7,12 +7,20 @@ const ProtectedRoute: React.FC = () => {
   const { user, ready } = useAuth();
   const loc = useLocation();
 
-  if (!ready) return <div className="text-gray-200 p-4">Loading…</div>;
+  if (!ready) return <div className="text-gray-200 p-4">Loading...</div>;
 
-  // Not logged in → go to /login
   if (!user) return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
 
-  // Enforce onboarding
+  const needsPasswordUpdate = !!user.mustChangePassword;
+  const isChangePasswordRoute = loc.pathname.startsWith("/change-password");
+
+  if (needsPasswordUpdate && !isChangePasswordRoute) {
+    return <Navigate to="/change-password" replace />;
+  }
+  if (!needsPasswordUpdate && isChangePasswordRoute) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   const onboarded = localStorage.getItem("onboarded") === "true";
   const isOnboardingRoute = loc.pathname.endsWith("/onboarding");
 

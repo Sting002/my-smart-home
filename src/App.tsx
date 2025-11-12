@@ -19,12 +19,13 @@ import Settings from "@/pages/Settings";
 import AddDevice from "@/pages/AddDevice";
 import { Onboarding } from "@/pages/Onboarding";
 import AdminDashboard from "@/pages/AdminDashboard";
+import ChangePassword from "@/pages/ChangePassword";
 
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Suspense fallback={<div className="text-gray-200 p-4">Loading.</div>}>
+        <Suspense fallback={<div className="text-gray-200 p-4">Loading...</div>}>
           <Routes>
             {/* Public */}
             <Route element={<PublicRoute />}>
@@ -33,7 +34,7 @@ export default function App() {
 
             {/* Protected app */}
             <Route element={<ProtectedRoute />}>
-              {/* Parent needs trailing * because children are nested */}
+              <Route path="/change-password" element={<ChangePassword />} />
               <Route
                 path="/*"
                 element={

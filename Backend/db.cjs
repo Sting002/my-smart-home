@@ -6,13 +6,14 @@ const dbFile = path.resolve(__dirname, "smarthome.db");
 const db = new sqlite3.Database(dbFile);
 
 db.serialize(() => {
-db.run(`CREATE TABLE IF NOT EXISTS users (
+  db.run(`CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     password_salt TEXT NOT NULL,
     created_at INTEGER NOT NULL,
-    role TEXT NOT NULL DEFAULT 'user'
+    role TEXT NOT NULL DEFAULT 'user',
+    must_change_password INTEGER NOT NULL DEFAULT 0
   )`);
 
   db.run(`CREATE TABLE IF NOT EXISTS devices (
@@ -38,6 +39,11 @@ db.run(`CREATE TABLE IF NOT EXISTS users (
     const hasRole = Array.isArray(columns) && columns.some((c) => c.name === "role");
     if (!hasRole) {
       db.run(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'`);
+    }
+    const hasMustChange =
+      Array.isArray(columns) && columns.some((c) => c.name === "must_change_password");
+    if (!hasMustChange) {
+      db.run(`ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0`);
     }
   });
 });
