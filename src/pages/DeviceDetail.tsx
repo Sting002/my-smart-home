@@ -202,34 +202,34 @@ export const DeviceDetail: React.FC = () => {
           <h2 className="text-white font-semibold mb-4">Edit Details</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="name" className="text-gray-400 text-sm">Name</label>
-              <input
-                id="name"
-                name="name"
-                type="text"
-                value={editForm.name}
-                onChange={onEditChange}
+            <label htmlFor="editName" className="text-gray-400 text-sm">Name</label>
+            <input
+              id="editName"
+              name="name"
+              type="text"
+              value={editForm.name}
+              onChange={onEditChange}
                 className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
               />
             </div>
             <div>
-              <label htmlFor="room" className="text-gray-400 text-sm">Room</label>
-              <input
-                id="room"
-                name="room"
-                type="text"
-                value={editForm.room}
-                onChange={onEditChange}
+            <label htmlFor="editRoom" className="text-gray-400 text-sm">Room</label>
+            <input
+              id="editRoom"
+              name="room"
+              type="text"
+              value={editForm.room}
+              onChange={onEditChange}
                 className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
               />
             </div>
             <div>
-              <label htmlFor="type" className="text-gray-400 text-sm">Type</label>
-              <select
-                id="type"
-                name="type"
-                value={editForm.type}
-                onChange={onEditChange}
+            <label htmlFor="editType" className="text-gray-400 text-sm">Type</label>
+            <select
+              id="editType"
+              name="type"
+              value={editForm.type}
+              onChange={onEditChange}
                 className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
               >
                 <option value="default">Other</option>
@@ -242,30 +242,30 @@ export const DeviceDetail: React.FC = () => {
               </select>
             </div>
             <div>
-              <label htmlFor="thresholdW" className="text-gray-400 text-sm">Threshold (W)</label>
-              <input
-                id="thresholdW"
-                name="thresholdW"
-                type="number"
-                value={editForm.thresholdW}
-                onChange={onEditChange}
+            <label htmlFor="editThresholdW" className="text-gray-400 text-sm">Threshold (W)</label>
+            <input
+              id="editThresholdW"
+              name="thresholdW"
+              type="number"
+              value={editForm.thresholdW}
+              onChange={onEditChange}
                 className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
               />
             </div>
             <div>
-              <label htmlFor="autoOffMins" className="text-gray-400 text-sm">Auto-off (minutes)</label>
-              <input
-                id="autoOffMins"
-                name="autoOffMins"
-                type="number"
-                value={editForm.autoOffMins}
+            <label htmlFor="editAutoOffMins" className="text-gray-400 text-sm">Auto-off (minutes)</label>
+            <input
+              id="editAutoOffMins"
+              name="autoOffMins"
+              type="number"
+              value={editForm.autoOffMins}
                 onChange={onEditChange}
                 className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
               />
             </div>
             <div className="flex items-center gap-2">
-              <input id="essential" name="essential" type="checkbox" checked={editForm.essential} onChange={(e) => setEditForm((p) => ({ ...p, essential: e.target.checked }))} />
-              <label htmlFor="essential" className="text-gray-300 text-sm">Essential device (don’t auto‑turn‑off in scenes)</label>
+              <input id="editEssential" name="essential" type="checkbox" checked={editForm.essential} onChange={(e) => setEditForm((p) => ({ ...p, essential: e.target.checked }))} />
+              <label htmlFor="editEssential" className="text-gray-300 text-sm">Essential device (don't auto-turn-off in scenes)</label>
             </div>
           </div>
           <div className="flex gap-2 mt-4">
