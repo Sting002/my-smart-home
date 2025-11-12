@@ -13,8 +13,8 @@ function normalizeKey(raw) {
 }
 
 /** GET /api/settings/:key */
-router.get("/:key(*)", (req, res) => {
-  const key = normalizeKey(req.params.key);
+router.get(/^\/(.+)$/, (req, res) => {
+  const key = normalizeKey(req.params[0]);
   if (!key) return res.status(400).json({ error: "key required" });
   db.get(`SELECT value FROM settings WHERE key = ?`, [key], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -40,8 +40,8 @@ router.post("/", requireAuth, (req, res) => {
 });
 
 /** DELETE /api/settings/:key */
-router.delete("/:key(*)", requireAuth, (req, res) => {
-  const key = normalizeKey(req.params.key);
+router.delete(/^\/(.+)$/, requireAuth, (req, res) => {
+  const key = normalizeKey(req.params[0]);
   if (!key) return res.status(400).json({ error: "key required" });
 
   db.run(`DELETE FROM settings WHERE key = ?`, [key], function (err) {
