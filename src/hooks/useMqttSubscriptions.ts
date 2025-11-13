@@ -35,12 +35,17 @@ export function useMqttSubscriptions({
     const energyPattern = `home/${homeId}/sensor/+/energy`;
     const alertPattern = `home/${homeId}/event/alert`;
 
+    const getDeviceId = (topic: string) => {
+      const parts = topic.split("/");
+      return parts.length >= 4 ? parts[3] : "";
+    };
+
     const onPower = (data: unknown, { topic }: MqttMessageContext) => {
       if (!data || typeof (data as Record<string, unknown>).watts !== "number")
         return;
 
       const reading = data as { ts?: number; watts: number };
-      const deviceId = topic.split("/")[4];
+      const deviceId = getDeviceId(topic);
       if (!deviceId || blockedDeviceIds.includes(deviceId)) return;
 
       setDevices((prev) => {
@@ -86,7 +91,7 @@ export function useMqttSubscriptions({
         return;
 
       const energy = data as { wh_total: number };
-      const deviceId = topic.split("/")[4];
+      const deviceId = getDeviceId(topic);
       if (!deviceId || blockedDeviceIds.includes(deviceId)) return;
 
       setDevices((prev) =>
