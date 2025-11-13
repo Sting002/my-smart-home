@@ -13,6 +13,12 @@ require("./db.cjs");
 const authRouter = require("./routes/auth.cjs");
 const devicesRouter = require("./routes/devices.cjs");
 const settingsRouter = require("./routes/settings.cjs");
+const historyRouter = require("./routes/history.cjs");
+const rulesRouter = require("./routes/rules.cjs");
+
+// Import backend services
+const mqttSubscriber = require("./services/mqttSubscriber.cjs");
+const ruleEngine = require("./services/ruleEngine.cjs");
 
 const {
   PORT = 4000,
@@ -64,6 +70,8 @@ app.get("/api/csrf", issueCsrfToken);
 app.use("/api/auth", checkCsrf, authRouter);
 app.use("/api/devices", checkCsrf, devicesRouter);
 app.use("/api/settings", checkCsrf, settingsRouter);
+app.use("/api/history", historyRouter);
+app.use("/api/rules", rulesRouter);
 
 app.use("/devices", checkCsrf, devicesRouter);
 app.use("/settings", checkCsrf, settingsRouter);
@@ -92,8 +100,11 @@ app.get("/", (_req, res) => {
           <li><a href="/api/auth/me">/api/auth/me</a></li>
           <li><a href="/api/devices">/api/devices</a></li>
           <li><a href="/api/settings/someKey">/api/settings/:key</a></li>
+          <li><a href="/api/rules">/api/rules</a> - Automation rules</li>
+          <li><a href="/api/history/alerts">/api/history/alerts</a> - Alert history</li>
         </ul>
         <p>DB file: <code>smarthome.db</code></p>
+        <p>Services: MQTT Subscriber, Rule Engine</p>
       </body>
     </html>
   `);
@@ -108,4 +119,26 @@ app.use((err, _req, res, _next) => {
 
 app.listen(PORT, () => {
   console.log(`Smart Home Backend on http://localhost:${PORT} (env: ${NODE_ENV})`);
+  
+  // Start backend services
+  console.log('\n🚀 Starting backend services...');
+  
+  // Start MQTT subscriber to persist telemetry
+  mqttSubscriber.connect();
+  
+  // Start rule engine to evaluate automations
+  ruleEngine.start();
+  
+  console.log('✅ All services started\n');
 });
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\n⚠️  Shutting down gracefully...');
+  
+  mqttSubscriber.disconnect();
+  ruleEngine.stop();
+  
+  process.exit(0);
+});
+
