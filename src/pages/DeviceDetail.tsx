@@ -6,6 +6,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { toast } from "@/hooks/use-toast";
 import { removeDevice as apiRemoveDevice } from "@/api/devices";
 import { useAuth } from "@/contexts/AuthContext";
+import { getPowerHistory } from "@/api/history";
 
 export const DeviceDetail: React.FC = () => {
   const { deviceId } = useParams<{ deviceId: string }>();
@@ -26,6 +27,38 @@ export const DeviceDetail: React.FC = () => {
     autoOffMins: 0,
     essential: false,
   });
+  const [onlineCheckTime, setOnlineCheckTime] = useState(Date.now());
+
+  // Fetch historical power data from backend on mount
+  useEffect(() => {
+    if (!deviceId) return;
+    
+    const fetchHistory = async () => {
+      try {
+        const now = Date.now();
+        const twoHoursAgo = now - (2 * 60 * 60 * 1000);
+        const history = await getPowerHistory(deviceId, { 
+          start: twoHoursAgo, 
+          end: now,
+          limit: 120 
+        });
+        
+        if (history && history.length > 0) {
+          const converted = history.map(h => ({
+            ts: h.timestamp,
+            watts: h.watts,
+            voltage: h.voltage,
+            current: h.current
+          }));
+          setPowerHistory(converted);
+        }
+      } catch (error) {
+        console.warn("Failed to fetch power history:", error);
+      }
+    };
+    
+    fetchHistory();
+  }, [deviceId]);
 
   useEffect(() => {
     if (!device || !deviceId) return;
@@ -43,6 +76,14 @@ export const DeviceDetail: React.FC = () => {
     };
   }, [device, deviceId, homeId]);
 
+  // Periodic check to update online status
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setOnlineCheckTime(Date.now());
+    }, 5000); // Update every 5 seconds
+    return () => clearInterval(timer);
+  }, []);
+
   // Seed edit form when device changes
   useEffect(() => {
     if (!device) return;
@@ -58,15 +99,21 @@ export const DeviceDetail: React.FC = () => {
 
   const isOnline = useMemo(() => {
     if (!device) return false;
-    return Date.now() - device.lastSeen < 30_000;
-  }, [device]);
+    const timeSinceLastSeen = onlineCheckTime - (device.lastSeen || 0);
+    return timeSinceLastSeen < 30_000 && timeSinceLastSeen >= 0;
+  }, [device, onlineCheckTime]);
 
   const chartData = useMemo(
     () =>
-      powerHistory.map(r => ({
-        time: new Date(r.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        watts: r.watts,
-      })),
+      powerHistory.map(r => {
+        // Ensure timestamp is in milliseconds
+        const timestamp = r.ts > 10000000000 ? r.ts : r.ts * 1000;
+        const date = new Date(timestamp);
+        return {
+          time: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          watts: r.watts,
+        };
+      }),
     [powerHistory]
   );
 
@@ -75,7 +122,13 @@ export const DeviceDetail: React.FC = () => {
       if (!device) return;
       setSaving(true);
       const val = Number(e.target.value);
+      
+      // Update device with new value and trigger backend save
       updateDevice(device.id, { [key]: val });
+      
+      // Also update the edit form to keep it in sync
+      setEditForm(prev => ({ ...prev, [key]: val }));
+      
       const t = setTimeout(() => setSaving(false), 300);
       return () => clearTimeout(t);
     },

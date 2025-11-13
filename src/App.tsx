@@ -1,4 +1,4 @@
-import React, { Suspense } from "react";
+import React, { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { EnergyProvider } from "@/contexts/EnergyContext";
@@ -8,24 +8,33 @@ import ProtectedRoute from "@/routes/ProtectedRoute";
 
 import AppLayout from "@/components/AppLayout";
 
+// Eager load critical pages
 import Login from "@/pages/Login";
 import NotFound from "@/pages/NotFound";
 import { Dashboard } from "@/pages/Dashboard";
-import { Devices } from "@/pages/Devices";
-import { DeviceDetail } from "@/pages/DeviceDetail";
-import { Automations } from "@/pages/Automations";
-import { Insights } from "@/pages/Insights";
-import Settings from "@/pages/Settings";
-import AddDevice from "@/pages/AddDevice";
-import { Onboarding } from "@/pages/Onboarding";
-import AdminDashboard from "@/pages/AdminDashboard";
-import ChangePassword from "@/pages/ChangePassword";
+
+// Lazy load secondary pages for code splitting
+const Devices = lazy(() => import("@/pages/Devices").then(m => ({ default: m.Devices })));
+const DeviceDetail = lazy(() => import("@/pages/DeviceDetail").then(m => ({ default: m.DeviceDetail })));
+const Automations = lazy(() => import("@/pages/Automations").then(m => ({ default: m.Automations })));
+const Insights = lazy(() => import("@/pages/Insights").then(m => ({ default: m.Insights })));
+const Settings = lazy(() => import("@/pages/Settings"));
+const AddDevice = lazy(() => import("@/pages/AddDevice"));
+const Onboarding = lazy(() => import("@/pages/Onboarding").then(m => ({ default: m.Onboarding })));
+const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
+const ChangePassword = lazy(() => import("@/pages/ChangePassword"));
+
+const LoadingFallback = () => (
+  <div className="flex items-center justify-center h-screen bg-gray-900">
+    <div className="text-gray-200 text-lg">Loading...</div>
+  </div>
+);
 
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Suspense fallback={<div className="text-gray-200 p-4">Loading...</div>}>
+        <Suspense fallback={<LoadingFallback />}>
           <Routes>
             {/* Public */}
             <Route element={<PublicRoute />}>

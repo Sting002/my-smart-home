@@ -185,7 +185,9 @@ export function useAutomationRunner({
 
       for (const device of devices) {
         const offlineFor = now - Number(device.lastSeen || 0);
-        if (offlineFor > 5 * 60 * 1000) {
+        // Only alert if device was recently seen (within last 2 hours) and is now offline
+        const wasRecentlySeen = offlineFor < (2 * 60 * 60 * 1000);
+        if (offlineFor > 5 * 60 * 1000 && wasRecentlySeen) {
           const message = `${device.name} appears offline (${Math.floor(offlineFor / 60000)} min)`;
           const alert: Alert = {
             id: `device:${device.id}`,

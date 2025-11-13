@@ -158,7 +158,15 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
       }
       const found = customScenes.find((s) => s.id === sceneId);
       if (found && Array.isArray(found.actions) && found.actions.length) {
-        return found.actions;
+        // For custom scenes, respect essential device setting
+        return found.actions.map(action => {
+          const device = devices.find(d => d.id === action.deviceId);
+          // If device is marked as essential, keep it on regardless of scene action
+          if (device?.essential && !action.turnOn) {
+            return { ...action, turnOn: true };
+          }
+          return action;
+        });
       }
       switch (sceneId) {
         case "away":

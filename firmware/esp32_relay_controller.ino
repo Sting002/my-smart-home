@@ -1,7 +1,20 @@
 /*
- * ESP32 Relay Controller - Final Version
- * Connects to WiFi and MQTT broker to control a relay via MQTT commands.
- * Publishes relay state updates to a specified MQTT topic.
+ * ESP32 Relay Controller - Enhanced Version with Full MQTT Topics
+ * 
+ * Features:
+ * - Connects to WiFi and MQTT broker to control relay via MQTT commands
+ * - Publishes power readings (watts, voltage, current) to power topic
+ * - Publishes cumulative energy consumption to energy topic
+ * - Publishes device status/heartbeat to status topic
+ * - Publishes alerts and warnings to alert topic
+ * - Receives ON/OFF commands from command topic
+ * 
+ * MQTT Topics Used:
+ * - Subscribe: home/{homeId}/cmd/{deviceId}/set
+ * - Publish: home/{homeId}/sensor/{deviceId}/power
+ * - Publish: home/{homeId}/sensor/{deviceId}/energy
+ * - Publish: home/{homeId}/sensor/{deviceId}/status
+ * - Publish: home/{homeId}/event/alert
  * 
  * Hardware:
  * - ESP32 Development Board
@@ -14,19 +27,19 @@
  */
 
 // Include required libraries for WiFi, MQTT, and JSON handling
-//#include <WiFi.h>          // ESP32 WiFi library for network connectivity
+#include <WiFi.h>          // ESP32 WiFi library for network connectivity
 #include <PubSubClient.h>  // MQTT client library for pub/sub messaging
 #include <ArduinoJson.h>   // JSON parsing and serialization library
 
-// === HOTSPOT CONFIGURATION ===
+// === WIFI CONFIGURATION ===
 // WiFi network credentials - update these to match your network
-const char* WIFI_SSID = "hastings";      // Your WiFi network name (SSID)
-const char* WIFI_PASSWORD = "Copylead88"; // Your WiFi password
+const char* WIFI_SSID = "Test";           // Your WiFi network name (SSID)
+const char* WIFI_PASSWORD = "test1234";   // Your WiFi password
 
 // MQTT broker connection settings
-const char* MQTT_BROKER = "192.168.243.82";  // IP address of your MQTT broker (computer running Mosquitto)
-const int MQTT_PORT = 1884;                  // MQTT broker port (default: 1883, WebSocket: 9001)
-const char* MQTT_CLIENT_ID = "esp32_relay_1"; // Unique identifier for this MQTT client
+const char* MQTT_BROKER = "10.53.224.164";     // IP address of your MQTT broker (computer running Mosquitto)
+const int MQTT_PORT = 1884;                     // MQTT broker port (default: 1883, WebSocket: 9001)
+const char* MQTT_CLIENT_ID = "esp32_relay_1";   // Unique identifier for this MQTT client
 
 // Device identification for MQTT topic structure
 const char* HOME_ID = "home1";                   // Home identifier (must match your dashboard's homeId)
@@ -38,6 +51,9 @@ const int RELAY_PIN = 23;  // GPIO pin connected to relay module control pin
 // MQTT topic strings - will be populated in setupTopics()
 char cmdTopic[100];    // Command topic: home/{homeId}/cmd/{deviceId}/set
 char powerTopic[100];  // Power status topic: home/{homeId}/sensor/{deviceId}/power
+char energyTopic[100]; // Energy topic: home/{homeId}/sensor/{deviceId}/energy
+char alertTopic[100];  // Alert topic: home/{homeId}/event/alert
+char statusTopic[100]; // Status topic: home/{homeId}/sensor/{deviceId}/status
 
 // Network and MQTT client instances
 WiFiClient wifiClient;              // WiFi client for network connection
@@ -45,13 +61,19 @@ PubSubClient mqttClient(wifiClient); // MQTT client using the WiFi connection
 
 // Global state tracking
 bool relayState = false;  // Current state of the relay (false = OFF, true = ON)
+float totalEnergyWh = 0;  // Cumulative energy consumption in Watt-hours
+unsigned long lastEnergyUpdate = 0; // Last time energy was calculated
+unsigned long lastHeartbeat = 0;    // Last heartbeat timestamp
 
 /**
  * setupTopics() - Constructs MQTT topic strings using HOME_ID and DEVICE_ID
  * 
- * Builds two topic strings:
+ * Builds multiple topic strings:
  * - cmdTopic: Topic to subscribe for receiving ON/OFF commands from dashboard
  * - powerTopic: Topic to publish current power/state information to dashboard
+ * - energyTopic: Topic to publish cumulative energy consumption
+ * - alertTopic: Topic to publish alerts and warnings
+ * - statusTopic: Topic to publish device status/heartbeat
  * 
  * Format: home/{homeId}/cmd/{deviceId}/set and home/{homeId}/sensor/{deviceId}/power
  */
@@ -61,6 +83,15 @@ void setupTopics() {
   
   // Build power status topic string: home/home1/sensor/living_room_bulb/power
   snprintf(powerTopic, sizeof(powerTopic), "home/%s/sensor/%s/power", HOME_ID, DEVICE_ID);
+  
+  // Build energy topic string: home/home1/sensor/living_room_bulb/energy
+  snprintf(energyTopic, sizeof(energyTopic), "home/%s/sensor/%s/energy", HOME_ID, DEVICE_ID);
+  
+  // Build alert topic string: home/home1/event/alert
+  snprintf(alertTopic, sizeof(alertTopic), "home/%s/event/alert", HOME_ID);
+  
+  // Build status topic string: home/home1/sensor/living_room_bulb/status
+  snprintf(statusTopic, sizeof(statusTopic), "home/%s/sensor/%s/status", HOME_ID, DEVICE_ID);
 }
 
 /**
@@ -98,6 +129,12 @@ void setup() {
   Serial.println(cmdTopic);   // Will print: home/home1/cmd/living_room_bulb/set
   Serial.print("📡 Power topic: ");
   Serial.println(powerTopic); // Will print: home/home1/sensor/living_room_bulb/power
+  Serial.print("📡 Energy topic: ");
+  Serial.println(energyTopic); // Will print: home/home1/sensor/living_room_bulb/energy
+  Serial.print("📡 Alert topic: ");
+  Serial.println(alertTopic);  // Will print: home/home1/event/alert
+  Serial.print("📡 Status topic: ");
+  Serial.println(statusTopic); // Will print: home/home1/sensor/living_room_bulb/status
   
   // === WIFI CONNECTION ===
   Serial.println();
@@ -179,6 +216,8 @@ void setup() {
         mqttClient.publish(powerTopic, jsonString.c_str());
         
         Serial.println("📤 Published state update");
+      } else {
+        Serial.println("⚠️  Invalid JSON or missing 'on' field");
       }
     });
     
@@ -212,6 +251,16 @@ void setup() {
       mqttClient.publish(powerTopic, jsonString.c_str());
       Serial.println("📤 Published initial state");
       
+      // Publish initial energy state
+      publishEnergy();
+      
+      // Publish initial status/heartbeat
+      publishStatus();
+      
+      // Initialize energy tracking timer
+      lastEnergyUpdate = millis();
+      lastHeartbeat = millis();
+      
       // Print success message and usage instructions
       Serial.println();
       Serial.println("🎉 SYSTEM FULLY OPERATIONAL!");
@@ -241,6 +290,8 @@ void setup() {
  * 1. Monitor WiFi connection status
  * 2. Maintain MQTT connection (reconnect if disconnected)
  * 3. Process incoming MQTT messages
+ * 4. Update energy consumption tracking
+ * 5. Publish periodic heartbeat/status
  * 
  * This function keeps the ESP32 connected and responsive to commands
  */
@@ -274,11 +325,117 @@ void loop() {
       // MQTT is connected, process any incoming messages
       // This calls the callback function when messages arrive on subscribed topics
       mqttClient.loop();
+      
+      // === PERIODIC ENERGY UPDATE ===
+      // Update energy consumption every 60 seconds
+      if (millis() - lastEnergyUpdate > 60000) {
+        updateEnergy();
+        publishEnergy();
+        lastEnergyUpdate = millis();
+      }
+      
+      // === PERIODIC HEARTBEAT ===
+      // Publish status/heartbeat every 5 minutes
+      if (millis() - lastHeartbeat > 300000) {
+        publishStatus();
+        lastHeartbeat = millis();
+      }
     }
   }
   // If WiFi is disconnected, the ESP32 will need to be reset or implement WiFi reconnection logic
   
   // Small delay to prevent excessive CPU usage
   delay(1000);  // Wait 1 second before next loop iteration
+}
+
+/**
+ * updateEnergy() - Calculate and update cumulative energy consumption
+ * 
+ * Calculates energy consumption based on:
+ * - Current relay state (ON/OFF)
+ * - Power consumption when ON (100W)
+ * - Time elapsed since last update
+ * 
+ * Formula: Energy (Wh) = Power (W) × Time (hours)
+ */
+void updateEnergy() {
+  unsigned long currentMillis = millis();
+  unsigned long elapsedMillis = currentMillis - lastEnergyUpdate;
+  
+  // Only accumulate energy if relay is ON
+  if (relayState) {
+    float hours = elapsedMillis / 3600000.0;  // Convert milliseconds to hours
+    float watts = 100.0;  // Power consumption when ON
+    totalEnergyWh += watts * hours;  // Add to cumulative total
+  }
+}
+
+/**
+ * publishEnergy() - Publish cumulative energy consumption to MQTT
+ * 
+ * Publishes to: home/{homeId}/sensor/{deviceId}/energy
+ * Payload format: {"ts": timestamp, "wh_total": totalEnergy}
+ */
+void publishEnergy() {
+  StaticJsonDocument<200> doc;
+  doc["ts"] = millis();
+  doc["wh_total"] = totalEnergyWh;
+  
+  String jsonString;
+  serializeJson(doc, jsonString);
+  mqttClient.publish(energyTopic, jsonString.c_str());
+  
+  Serial.print("⚡ Published energy: ");
+  Serial.print(totalEnergyWh);
+  Serial.println(" Wh");
+}
+
+/**
+ * publishStatus() - Publish device status/heartbeat to MQTT
+ * 
+ * Publishes to: home/{homeId}/sensor/{deviceId}/status
+ * Payload includes: uptime, WiFi signal strength, relay state, IP address
+ */
+void publishStatus() {
+  StaticJsonDocument<300> doc;
+  doc["ts"] = millis();
+  doc["uptime"] = millis() / 1000;  // Uptime in seconds
+  doc["rssi"] = WiFi.RSSI();  // WiFi signal strength in dBm
+  doc["relay_state"] = relayState;
+  doc["ip"] = WiFi.localIP().toString();
+  doc["free_heap"] = ESP.getFreeHeap();  // Free memory in bytes
+  
+  String jsonString;
+  serializeJson(doc, jsonString);
+  mqttClient.publish(statusTopic, jsonString.c_str());
+  
+  Serial.println("💓 Published status/heartbeat");
+}
+
+/**
+ * publishAlert() - Publish an alert to MQTT
+ * 
+ * Publishes to: home/{homeId}/event/alert
+ * Used for sending warnings, errors, or notifications from the device
+ * 
+ * @param severity: "info", "warning", "error", "critical"
+ * @param message: Alert message text
+ */
+void publishAlert(const char* severity, const char* message) {
+  StaticJsonDocument<300> doc;
+  doc["ts"] = millis();
+  doc["deviceId"] = DEVICE_ID;
+  doc["severity"] = severity;
+  doc["message"] = message;
+  doc["type"] = "device";
+  
+  String jsonString;
+  serializeJson(doc, jsonString);
+  mqttClient.publish(alertTopic, jsonString.c_str());
+  
+  Serial.print("🚨 Alert published: [");
+  Serial.print(severity);
+  Serial.print("] ");
+  Serial.println(message);
 }
 

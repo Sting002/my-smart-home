@@ -25,7 +25,10 @@ export const Dashboard: React.FC = () => {
   const estimatedCost = useMemo(() => {
     try {
       const touEnabled = localStorage.getItem("touEnabled") === "true";
-      if (!touEnabled) return (todayKwh * tariff).toFixed(2);
+      if (!touEnabled) {
+        const cost = todayKwh * tariff;
+        return Number.isFinite(cost) ? cost.toFixed(2) : "0.00";
+      }
       const toNum = (value: string | null, fallback: number): number => {
         const parsed = Number(value);
         return Number.isFinite(parsed) ? parsed : fallback;
@@ -40,9 +43,11 @@ export const Dashboard: React.FC = () => {
       const sM = toM(start), eM = toM(end);
       const inOff = sM < eM ? (mins >= sM && mins < eM) : (mins >= sM || mins < eM);
       const price = inOff ? offp : peak;
-      return (todayKwh * price).toFixed(2);
+      const cost = todayKwh * price;
+      return Number.isFinite(cost) ? cost.toFixed(2) : "0.00";
     } catch {
-      return (todayKwh * tariff).toFixed(2);
+      const cost = todayKwh * tariff;
+      return Number.isFinite(cost) ? cost.toFixed(2) : "0.00";
     }
   }, [todayKwh, tariff]);
 
@@ -92,7 +97,7 @@ export const Dashboard: React.FC = () => {
           </div>
           <div className="text-center">
             <div className="text-3xl font-bold text-green-500">
-              {currency} {estimatedCost}
+              {currency === "USD" ? "$" : currency} {estimatedCost}
             </div>
             <div className="text-sm text-gray-400">Est. Cost</div>
           </div>

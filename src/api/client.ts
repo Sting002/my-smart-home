@@ -94,6 +94,9 @@ export function apiDelete<T>(path: string) {
   return request<T>(path, { method: "DELETE" });
 }
 
+// Export request as apiClient for backward compatibility
+export const apiClient = request;
+
 // Optional default api object
 export const api = {
   get: apiGet,

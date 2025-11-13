@@ -12,6 +12,21 @@ export default defineConfig({
   resolve: {
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Vendor chunks - split large libraries
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'charts': ['recharts'],
+          'mqtt': ['mqtt'],
+          'ui': ['lucide-react', '@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-toast'],
+          'utils': ['clsx', 'tailwind-merge', 'date-fns'],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1000, // Increase warning limit to 1000 kB
+  },
   server: {
     host: "0.0.0.0",
     port: 8080,

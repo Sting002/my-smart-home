@@ -46,7 +46,9 @@ type PieTooltipPayload = {
 };
 
 function formatMinute(ts: number) {
-  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  // Ensure timestamp is in milliseconds
+  const timestamp = ts > 10000000000 ? ts : ts * 1000;
+  return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 export const Insights: React.FC = () => {
