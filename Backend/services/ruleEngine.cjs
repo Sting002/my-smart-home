@@ -2,7 +2,7 @@
 const { db } = require('../db.cjs');
 const mqtt = require('mqtt');
 
-const BROKER_URL = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
+const BROKER_URL = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1884';
 const EVAL_INTERVAL = parseInt(process.env.RULE_EVAL_INTERVAL_MS || '30000'); // 30 seconds
 
 class RuleEngine {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 export const DEFAULT_BROKER_URL =
-  import.meta.env?.VITE_MQTT_BROKER_URL || "ws://localhost:9001/mqtt";
+  import.meta.env?.VITE_MQTT_BROKER_URL || "ws://localhost:9002/mqtt";
 
 type BrokerConfig = {
   onboarded: boolean;
