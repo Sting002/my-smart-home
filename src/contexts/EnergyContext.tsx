@@ -73,7 +73,33 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
           const filtered = (serverDevices as Device[]).filter(
             (d) => !blockedDeviceIds.includes(d.id)
           );
-          setDevices(filtered);
+          setDevices((prev) => {
+            const merged = filtered.map((server) => {
+              const existing = prev.find((d) => d.id === server.id);
+              if (!existing) return server;
+              return {
+                ...server,
+                isOn: typeof existing.isOn === "boolean" ? existing.isOn : !!server.isOn,
+                watts:
+                  typeof existing.watts === "number"
+                    ? existing.watts
+                    : typeof server.watts === "number"
+                    ? server.watts
+                    : 0,
+                kwhToday:
+                  typeof existing.kwhToday === "number"
+                    ? existing.kwhToday
+                    : typeof server.kwhToday === "number"
+                    ? server.kwhToday
+                    : 0,
+                lastSeen: existing.lastSeen ?? server.lastSeen ?? Date.now(),
+              };
+            });
+            const leftovers = prev.filter(
+              (localDevice) => !filtered.some((server) => server.id === localDevice.id)
+            );
+            return [...merged, ...leftovers];
+          });
         }
       } catch (error) {
         if (import.meta.env?.VITE_DEBUG_MQTT === "true") {
