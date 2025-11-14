@@ -5,13 +5,21 @@ import { ToastAction } from "@/components/ui/toast";
 import type { Device, Alert } from "@/utils/energyContextTypes";
 import { useNavigate } from "react-router-dom";
 
+type ScheduleDay = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
+
 type Rule = {
   id: string;
   deviceId: string;
+  triggerType: "power" | "time" | "schedule";
   thresholdW: number;
   minutes: number;
+  timeHour: number;
+  timeMinute: number;
+  scheduleDays: ScheduleDay[];
+  scheduleTime: string;
   action: string;
   sceneId?: string;
+  enabled: boolean;
   lastTriggered?: number;
 };
 
@@ -68,14 +76,26 @@ export function useAutomationRunner({
   const exceedSinceRef = useRef<Record<string, number>>({});
   const triggeredRef = useRef<Record<string, boolean>>({});
   const lowSinceRef = useRef<Record<string, number>>({});
+  const timeTriggeredTodayRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
+      const currentDate = new Date();
+      const currentDay = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"][
+        currentDate.getDay()
+      ] as ScheduleDay;
+      const currentHour = currentDate.getHours();
+      const currentMinute = currentDate.getMinutes();
+      const todayKey = currentDate.toDateString();
+      
       const rules = loadRules();
       let updatedRules = false;
 
       for (const rule of rules) {
+        // Skip disabled rules
+        if (rule.enabled === false) continue;
+        
         const device = devices.find((d) => d.id === rule.deviceId);
         if (!device) {
           delete exceedSinceRef.current[rule.id];
@@ -83,70 +103,141 @@ export function useAutomationRunner({
           continue;
         }
 
-        if (device.watts > (Number(rule.thresholdW) || 0)) {
-          if (!exceedSinceRef.current[rule.id]) exceedSinceRef.current[rule.id] = now;
-          const elapsedMins = (now - exceedSinceRef.current[rule.id]) / 60000;
-          if (elapsedMins >= (Number(rule.minutes) || 0) && !triggeredRef.current[rule.id]) {
-            if (rule.action === "notify") {
-              toast({
-                title: "Automation triggered",
-                description: `${device.name} > ${rule.thresholdW}W for ${rule.minutes} min`,
-              });
-            } else if (rule.action === "turnOff") {
-              if (!mqttService.isConnected()) {
-                toast({
-                  title: "Not connected to MQTT",
-                  description: `Cannot turn off ${device.name}. Check Settings -> Broker URL.`,
-                  action: renderReconnectAction(),
-                });
-              } else {
-                setDevices((prev) =>
-                  prev.map((d) =>
-                    d.id === device.id ? { ...d, isOn: false, watts: Math.min(d.watts, 1) } : d
-                  )
-                );
-                mqttService.publish(`home/${homeId}/cmd/${device.id}/set`, { on: false });
-              }
-            } else if (rule.action === "activateScene") {
-              const targets = computeSceneTargets(rule.sceneId);
-              if (!mqttService.isConnected()) {
-                toast({
-                  title: "Not connected to MQTT",
-                  description: `Cannot activate scene. Check Settings -> Broker URL.`,
-                  action: renderReconnectAction(),
-                });
-              } else {
-                for (const target of targets) {
-                  setDevices((prev) =>
-                    prev.map((d) =>
-                      d.id === target.deviceId
-                        ? {
-                            ...d,
-                            isOn: target.turnOn,
-                            watts: target.turnOn ? d.watts : Math.min(d.watts, 1),
-                          }
-                        : d
-                    )
-                  );
-                  mqttService.publish(`home/${homeId}/cmd/${target.deviceId}/set`, {
-                    on: target.turnOn,
-                  });
-                }
-                toast({ title: "Scene activated", description: rule.sceneId || "scene" });
+        // Handle Power-based triggers
+        if (rule.triggerType === "power") {
+          if (device.watts > (Number(rule.thresholdW) || 0)) {
+            if (!exceedSinceRef.current[rule.id]) exceedSinceRef.current[rule.id] = now;
+            const elapsedMins = (now - exceedSinceRef.current[rule.id]) / 60000;
+            if (elapsedMins >= (Number(rule.minutes) || 0) && !triggeredRef.current[rule.id]) {
+              executeAction(rule, device, now);
+              triggeredRef.current[rule.id] = true;
+              rule.lastTriggered = now;
+              updatedRules = true;
+            }
+          } else {
+            delete exceedSinceRef.current[rule.id];
+            delete triggeredRef.current[rule.id];
+          }
+        }
+        
+        // Handle Time-based triggers (daily at specific time)
+        else if (rule.triggerType === "time") {
+          const ruleHour = Number(rule.timeHour) || 0;
+          const ruleMinute = Number(rule.timeMinute) || 0;
+          
+          if (currentHour === ruleHour && currentMinute === ruleMinute) {
+            if (timeTriggeredTodayRef.current[rule.id] !== todayKey) {
+              executeAction(rule, device, now);
+              timeTriggeredTodayRef.current[rule.id] = todayKey;
+              rule.lastTriggered = now;
+              updatedRules = true;
+            }
+          }
+        }
+        
+        // Handle Schedule-based triggers (specific days at specific time)
+        else if (rule.triggerType === "schedule") {
+          if (rule.scheduleDays && rule.scheduleDays.includes(currentDay)) {
+            const [scheduleHour, scheduleMinute] = (rule.scheduleTime || "00:00").split(":").map(Number);
+            
+            if (currentHour === scheduleHour && currentMinute === scheduleMinute) {
+              if (timeTriggeredTodayRef.current[rule.id] !== todayKey) {
+                executeAction(rule, device, now);
+                timeTriggeredTodayRef.current[rule.id] = todayKey;
+                rule.lastTriggered = now;
+                updatedRules = true;
               }
             }
-
-            triggeredRef.current[rule.id] = true;
-            rule.lastTriggered = now;
-            updatedRules = true;
           }
-        } else {
-          delete exceedSinceRef.current[rule.id];
-          delete triggeredRef.current[rule.id];
         }
       }
 
       if (updatedRules) saveRules(rules);
+
+      function executeAction(rule: Rule, device: Device, timestamp: number) {
+        if (rule.action === "notify") {
+          let description = "";
+          if (rule.triggerType === "power") {
+            description = `${device.name} exceeded ${rule.thresholdW}W for ${rule.minutes} min`;
+          } else if (rule.triggerType === "time") {
+            const hour = String(rule.timeHour).padStart(2, "0");
+            const minute = String(rule.timeMinute).padStart(2, "0");
+            description = `Scheduled action at ${hour}:${minute}`;
+          } else if (rule.triggerType === "schedule") {
+            description = `Scheduled action for ${device.name}`;
+          }
+          
+          toast({
+            title: "Automation triggered",
+            description,
+          });
+        } else if (rule.action === "turnOff") {
+          if (!mqttService.isConnected()) {
+            toast({
+              title: "Not connected to MQTT",
+              description: `Cannot turn off ${device.name}. Check Settings -> Broker URL.`,
+              action: renderReconnectAction(),
+            });
+          } else {
+            setDevices((prev) =>
+              prev.map((d) =>
+                d.id === device.id ? { ...d, isOn: false, watts: Math.min(d.watts, 1) } : d
+              )
+            );
+            mqttService.publish(`home/${homeId}/cmd/${device.id}/set`, { on: false });
+            toast({
+              title: "Device turned off",
+              description: `${device.name} turned off by automation`,
+            });
+          }
+        } else if (rule.action === "turnOn") {
+          if (!mqttService.isConnected()) {
+            toast({
+              title: "Not connected to MQTT",
+              description: `Cannot turn on ${device.name}. Check Settings -> Broker URL.`,
+              action: renderReconnectAction(),
+            });
+          } else {
+            setDevices((prev) =>
+              prev.map((d) =>
+                d.id === device.id ? { ...d, isOn: true } : d
+              )
+            );
+            mqttService.publish(`home/${homeId}/cmd/${device.id}/set`, { on: true });
+            toast({
+              title: "Device turned on",
+              description: `${device.name} turned on by automation`,
+            });
+          }
+        } else if (rule.action === "activateScene") {
+          const targets = computeSceneTargets(rule.sceneId);
+          if (!mqttService.isConnected()) {
+            toast({
+              title: "Not connected to MQTT",
+              description: `Cannot activate scene. Check Settings -> Broker URL.`,
+              action: renderReconnectAction(),
+            });
+          } else {
+            for (const target of targets) {
+              setDevices((prev) =>
+                prev.map((d) =>
+                  d.id === target.deviceId
+                    ? {
+                        ...d,
+                        isOn: target.turnOn,
+                        watts: target.turnOn ? d.watts : Math.min(d.watts, 1),
+                      }
+                    : d
+                )
+              );
+              mqttService.publish(`home/${homeId}/cmd/${target.deviceId}/set`, {
+                on: target.turnOn,
+              });
+            }
+            toast({ title: "Scene activated", description: rule.sceneId || "scene" });
+          }
+        }
+      }
 
       for (const device of devices) {
         const thresh = Number(device.thresholdW || 0);

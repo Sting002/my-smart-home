@@ -238,118 +238,213 @@ export const Insights: React.FC = () => {
     <div className="space-y-6">
       {/* Energy Trend */}
       <div className="bg-gray-800 rounded-xl p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-white font-semibold">Energy Trends</h2>
-          <div className="flex gap-2 items-center">
-            <select
-              value={metric}
-              onChange={(e) => setMetric(e.target.value as TrendMetric)}
-              className="bg-gray-700 text-white px-3 py-2 rounded border border-gray-600"
-              aria-label="Trend metric"
-            >
-              <option value="power">Power (W)</option>
-              <option value="energy">Energy (kWh/min)</option>
-            </select>
-            <select
-              value={period}
-              onChange={(e) => setPeriod(e.target.value as Period)}
-              className="bg-gray-700 text-white px-3 py-2 rounded border border-gray-600"
-              aria-label="Trend period"
-            >
-              <option value="day">Today</option>
-              <option value="week">This Week</option>
-              <option value="month">This Month</option>
-            </select>
-            {period === "day" && (
+        <div className="mb-6">
+          <h2 className="text-white font-semibold text-xl mb-2">Your Energy Usage Today</h2>
+          <p className="text-gray-400 text-sm">See how much power your home is using throughout the day</p>
+        </div>
+
+        {/* Summary Cards */}
+        {period === "day" && todayTrend.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="bg-gray-900 rounded-lg p-4">
+              <div className="text-gray-400 text-sm mb-1">Current Usage</div>
+              <div className="text-2xl font-bold text-green-500">
+                {trendWithAvg[trendWithAvg.length - 1]?.watts.toLocaleString() || 0} W
+              </div>
+              <div className="text-xs text-gray-500 mt-1">Right now</div>
+            </div>
+            <div className="bg-gray-900 rounded-lg p-4">
+              <div className="text-gray-400 text-sm mb-1">Highest Usage</div>
+              <div className="text-2xl font-bold text-orange-500">
+                {peakValue.toLocaleString()} {metric === "power" ? "W" : "kWh"}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">{peakLabel.split(" at ")[1] || "Today"}</div>
+            </div>
+            <div className="bg-gray-900 rounded-lg p-4">
+              <div className="text-gray-400 text-sm mb-1">Average Usage</div>
+              <div className="text-2xl font-bold text-blue-500">
+                {Math.round(trendWithAvg.reduce((sum, d) => sum + d.watts, 0) / trendWithAvg.length).toLocaleString()} W
+              </div>
+              <div className="text-xs text-gray-500 mt-1">Throughout the day</div>
+            </div>
+          </div>
+        )}
+
+        {/* View Options */}
+        <div className="flex gap-2 items-center mb-4 flex-wrap">
+          <span className="text-gray-400 text-sm">View:</span>
+          <select
+            value={period}
+            onChange={(e) => setPeriod(e.target.value as Period)}
+            className="bg-gray-700 text-white px-4 py-2 rounded-lg border border-gray-600 text-sm"
+            aria-label="Time period"
+          >
+            <option value="day">Today</option>
+            <option value="week">This Week</option>
+            <option value="month">This Month</option>
+          </select>
+          {period === "day" && (
+            <>
+              <span className="text-gray-400 text-sm ml-4">Detail:</span>
               <select
                 value={String(resolution)}
                 onChange={(e) => setResolution(Number(e.target.value) as 1 | 5 | 15)}
-                className="bg-gray-700 text-white px-3 py-2 rounded border border-gray-600"
-                aria-label="Resolution"
-                title="Resolution"
+                className="bg-gray-700 text-white px-4 py-2 rounded-lg border border-gray-600 text-sm"
+                aria-label="Time detail"
               >
-                <option value="1">1 min</option>
-                <option value="5">5 min</option>
-                <option value="15">15 min</option>
+                <option value="1">Every minute</option>
+                <option value="5">Every 5 minutes</option>
+                <option value="15">Every 15 minutes</option>
               </select>
-            )}
-          </div>
+            </>
+          )}
         </div>
-        {period === "day" && todayTrend.length > 0 && (
-          <div className="text-xs text-gray-400 mb-2">Peak: <span className="text-gray-200">{peakLabel}</span></div>
-        )}
 
         {period === "day" && (
           todayTrend.length === 0 ? (
-            <div className="text-gray-400 text-sm">Collecting data. Check back shortly.</div>
+            <div className="bg-gray-900 rounded-lg p-8 text-center">
+              <div className="text-gray-400">Starting to collect your energy data...</div>
+              <div className="text-sm text-gray-500 mt-2">The chart will appear in a few moments</div>
+            </div>
           ) : (
             <>
-            <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={trendWithAvg} margin={{ top: 8, right: 12, left: 8, bottom: 24 }}>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={trendWithAvg} margin={{ top: 8, right: 12, left: 12, bottom: 24 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis dataKey="time" stroke="#9CA3AF" minTickGap={24} />
+                <XAxis 
+                  dataKey="time" 
+                  stroke="#9CA3AF" 
+                  minTickGap={30}
+                  style={{ fontSize: '12px' }}
+                />
                 <YAxis
                   stroke="#9CA3AF"
                   domain={[0, Math.ceil((maxY || 0) * 1.1)]}
-                  tickFormatter={(v: number) => (metric === "power" ? `${v}` : `${v.toFixed(3)}`)}
-                  label={{ value: metric === "power" ? "Power (W)" : "Energy (kWh/min)", angle: -90, position: "insideLeft", fill: "#9CA3AF" }}
+                  tickFormatter={(v: number) => `${v.toLocaleString()}`}
+                  style={{ fontSize: '12px' }}
+                  width={60}
                 />
                 <Tooltip
-                  contentStyle={{ backgroundColor: "#1F2937", border: "none" }}
-                  formatter={formatLineTooltip}
+                  contentStyle={{ 
+                    backgroundColor: "#1F2937", 
+                    border: "1px solid #374151",
+                    borderRadius: "8px",
+                    padding: "12px"
+                  }}
+                  formatter={(value: number | string) => {
+                    const numVal = Number(value);
+                    return [`${numVal.toLocaleString()} Watts`, "Power Usage"];
+                  }}
+                  labelFormatter={(label) => `Time: ${label}`}
                 />
                 <Line
                   type="monotone"
-                  dataKey={metric === "power" ? "watts" : "kwh"}
+                  dataKey="watts"
                   stroke="#22C55E"
-                  strokeWidth={2}
+                  strokeWidth={3}
                   dot={false}
-                  activeDot={{ r: 3, stroke: "#22C55E", strokeWidth: 1 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="avg"
-                  stroke="#3B82F6"
-                  strokeWidth={2}
-                  dot={false}
-                  strokeDasharray="5 4"
+                  activeDot={{ r: 5, stroke: "#22C55E", strokeWidth: 2, fill: "#fff" }}
+                  name="Power Usage"
                 />
                 {peakValue > 0 && (
-                  <ReferenceLine y={peakValue} stroke="#F59E0B" strokeDasharray="4 3" />
+                  <ReferenceLine 
+                    y={peakValue} 
+                    stroke="#F59E0B" 
+                    strokeDasharray="5 5"
+                    strokeWidth={2}
+                    label={{ 
+                      value: "Highest", 
+                      position: "right",
+                      fill: "#F59E0B",
+                      fontSize: 12
+                    }}
+                  />
                 )}
-                <Brush dataKey="time" height={20} stroke="#9CA3AF" travellerWidth={8} />
               </LineChart>
             </ResponsiveContainer>
-            <div className="text-[11px] text-gray-400 mt-2">Legend: <span className="text-gray-200">Power</span> (green), <span className="text-gray-200">Avg</span> (blue dashed)</div>
+            <div className="mt-4 bg-gray-900 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <div className="text-2xl">💡</div>
+                <div>
+                  <div className="text-white text-sm font-medium mb-1">How to read this chart:</div>
+                  <div className="text-gray-400 text-sm">
+                    The <span className="text-green-500 font-medium">green line</span> shows your power usage in Watts. 
+                    Higher peaks mean more devices were running. The <span className="text-orange-500 font-medium">orange dotted line</span> marks 
+                    your highest usage time today.
+                  </div>
+                </div>
+              </div>
+            </div>
             </>
           )
         )}
 
         {period === "week" && (
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={weeklyBars}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis dataKey="day" stroke="#9CA3AF" />
-              <YAxis stroke="#9CA3AF" />
-              <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "none" }} formatter={formatEnergyTooltip} />
-              <Bar dataKey="kwh" fill="#22C55E" />
-            </BarChart>
-          </ResponsiveContainer>
+          <>
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={weeklyBars}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="day" stroke="#9CA3AF" style={{ fontSize: '12px' }} />
+                <YAxis stroke="#9CA3AF" style={{ fontSize: '12px' }} />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: "#1F2937", 
+                    border: "1px solid #374151",
+                    borderRadius: "8px",
+                    padding: "12px"
+                  }} 
+                  formatter={(value: number) => [`${value.toFixed(2)} kWh`, "Energy Used"]}
+                />
+                <Bar dataKey="kwh" fill="#22C55E" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="mt-4 bg-gray-900 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <div className="text-2xl">📊</div>
+                <div>
+                  <div className="text-white text-sm font-medium mb-1">Weekly View</div>
+                  <div className="text-gray-400 text-sm">
+                    Each bar shows the total energy used per day. Currently showing today's usage only.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
         )}
 
         {period === "month" && (
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={monthBars}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis dataKey="day" stroke="#9CA3AF" />
-              <YAxis stroke="#9CA3AF" />
-              <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "none" }} formatter={formatEnergyTooltip} />
-              <Bar dataKey="kwh" fill="#22C55E" />
-            </BarChart>
-          </ResponsiveContainer>
+          <>
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={monthBars}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="day" stroke="#9CA3AF" style={{ fontSize: '12px' }} minTickGap={20} />
+                <YAxis stroke="#9CA3AF" style={{ fontSize: '12px' }} />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: "#1F2937", 
+                    border: "1px solid #374151",
+                    borderRadius: "8px",
+                    padding: "12px"
+                  }} 
+                  formatter={(value: number) => [`${value.toFixed(2)} kWh`, "Energy Used"]}
+                  labelFormatter={(label) => `Day ${label}`}
+                />
+                <Bar dataKey="kwh" fill="#22C55E" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="mt-4 bg-gray-900 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <div className="text-2xl">📅</div>
+                <div>
+                  <div className="text-white text-sm font-medium mb-1">Monthly View</div>
+                  <div className="text-gray-400 text-sm">
+                    Shows your daily energy consumption for the entire month. Currently showing today's usage only.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
         )}
-
-        {period !== "day" && <div className="text-xs text-gray-500 mt-2">Note: Weekly/Monthly values currently reflect today only.</div>}
       </div>
 
       {/* KPIs */}

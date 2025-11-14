@@ -1,64 +1,48 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { useEnergy } from "../contexts/EnergyContext";
 import { mqttService } from "@/services/mqttService";
 import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { useNavigate } from "react-router-dom";
 
-type RuleAction = "notify" | "turnOff" | "activateScene";
-
-interface Scene {
-  id: string;
-  name: string;
-  icon: string;
-  actions: { deviceId: string; turnOn: boolean }[];
-}
+type RuleAction = "notify" | "turnOff" | "turnOn";
+type TriggerType = "power" | "time" | "schedule";
+type ScheduleDay = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
 
 interface RuleDraft {
   deviceId: string;
+  triggerType: TriggerType;
+  // Power trigger fields
   thresholdW: number;
   minutes: number;
+  // Time trigger fields
+  timeHour: number;
+  timeMinute: number;
+  // Schedule trigger fields
+  scheduleDays: ScheduleDay[];
+  scheduleTime: string;
+  // Action
   action: RuleAction;
-  sceneId?: string;
+  enabled: boolean;
 }
 
 export const Automations: React.FC = () => {
   const { devices, homeId, updateDevice } = useEnergy();
   const navigate = useNavigate();
 
-  // Built-in scenes (targets computed at runtime if no explicit actions)
-  const builtinScenes: Scene[] = useMemo(
-    () => [
-      { id: "away", name: "Away Mode", icon: "🏠", actions: [] },
-      { id: "sleep", name: "Sleep Mode", icon: "🌙", actions: [] },
-      { id: "workday", name: "Workday", icon: "💼", actions: [] },
-      { id: "weekend", name: "Weekend", icon: "🎉", actions: [] },
-    ],
-    []
-  );
-
-  // Custom scenes persisted locally and combined with built-ins for display
-  const [customScenes, setCustomScenes] = useState<Scene[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("scenes") || "[]") as Scene[];
-    } catch {
-      return [] as Scene[];
-    }
-  });
-  const saveCustomScenes = useCallback((next: Scene[]) => {
-    setCustomScenes(next);
-    localStorage.setItem("scenes", JSON.stringify(next));
-  }, []);
-  const scenes: Scene[] = useMemo(() => [...builtinScenes, ...customScenes], [builtinScenes, customScenes]);
-
   // Rule builder state
   const [showBuilder, setShowBuilder] = useState(false);
   const [draft, setDraft] = useState<RuleDraft>({
     deviceId: "",
+    triggerType: "power",
     thresholdW: 1000,
     minutes: 5,
+    timeHour: 22,
+    timeMinute: 0,
+    scheduleDays: [],
+    scheduleTime: "22:00",
     action: "notify",
-    sceneId: "",
+    enabled: true,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [rules, setRules] = useState<(RuleDraft & { id: string; lastTriggered?: number })[]>(
@@ -69,148 +53,40 @@ export const Automations: React.FC = () => {
     localStorage.setItem("rules", JSON.stringify(next));
   }, []);
 
-  // Scenes editor state
-  const [showSceneEditor, setShowSceneEditor] = useState(false);
-  const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
-  const [sceneDraft, setSceneDraft] = useState<Scene>(() => ({
-    id: "",
-    name: "New Scene",
-    icon: "⭐",
-    actions: devices.map((d) => ({ deviceId: d.id, turnOn: d.isOn })),
-  }));
-
-  const openNewScene = useCallback(() => {
-    setEditingSceneId(null);
-    setSceneDraft({
-      id: "",
-      name: "New Scene",
-      icon: "⭐",
-      actions: devices.map((d) => ({ deviceId: d.id, turnOn: d.isOn })),
-    });
-    setShowSceneEditor(true);
-  }, [devices]);
-
-  const openEditScene = useCallback(
-    (scene: Scene) => {
-      const merged = devices.map((d) => {
-        const found = scene.actions.find((a) => a.deviceId === d.id);
-        return { deviceId: d.id, turnOn: found ? found.turnOn : d.isOn };
-      });
-      setEditingSceneId(scene.id);
-      setSceneDraft({ ...scene, actions: merged });
-      setShowSceneEditor(true);
-    },
-    [devices]
-  );
-
-  const saveSceneDraft = useCallback(() => {
-    const name = sceneDraft.name.trim();
-    if (!name) {
-      toast({ title: "Enter a scene name" });
-      return;
-    }
-    if (editingSceneId) {
-      const next = customScenes.map((s) => (s.id === editingSceneId ? { ...sceneDraft, id: editingSceneId } : s));
-      saveCustomScenes(next);
-      toast({ title: "Scene updated", description: name });
-    } else {
-      const id = `${Date.now()}`;
-      const next = [{ ...sceneDraft, id }, ...customScenes];
-      saveCustomScenes(next.slice(0, 50));
-      toast({ title: "Scene created", description: name });
-    }
-    setShowSceneEditor(false);
-    setEditingSceneId(null);
-  }, [sceneDraft, editingSceneId, customScenes, saveCustomScenes]);
-
-  const deleteScene = useCallback(
-    (id: string) => {
-      const next = customScenes.filter((s) => s.id !== id);
-      saveCustomScenes(next);
-      toast({ title: "Scene deleted" });
-      if (editingSceneId === id) setShowSceneEditor(false);
-    },
-    [customScenes, editingSceneId, saveCustomScenes]
-  );
-
-  const isEssentialDevice = useCallback((name?: string, type?: string) => {
-    const n = String(name || "").toLowerCase();
-    const t = String(type || "").toLowerCase();
-    return n.includes("fridge") || n.includes("refrigerator") || t.includes("fridge") || t.includes("refrigerator");
-  }, []);
-
-  const computeSceneTargets = useCallback(
-    (sceneId: string) => {
-      switch (sceneId) {
-        case "away":
-        case "sleep":
-        case "workday":
-          // Keep only essential devices on (e.g., refrigerator). Turn off others.
-          return devices.map((d) => ({ deviceId: d.id, turnOn: isEssentialDevice(d.name, d.type) }));
-        case "weekend":
-          // Weekend: keep essentials on and leave others as-is
-          return devices.map((d) => ({ deviceId: d.id, turnOn: isEssentialDevice(d.name, d.type) ? true : d.isOn }));
-        default:
-          // Fallback: no change
-          return devices.map((d) => ({ deviceId: d.id, turnOn: d.isOn }));
-      }
-    },
-    [devices, isEssentialDevice]
-  );
-
-  const activateScene = useCallback(
-    (scene: Scene) => {
-      if (!mqttService.isConnected()) {
-        toast({
-          title: "Not connected to MQTT",
-          description: `Cannot activate "${scene.name}". Check Settings → Broker URL.`,
-          action: (
-            <ToastAction altText="Open Settings" onClick={() => navigate("/settings")}>
-              Reconnect
-            </ToastAction>
-          ),
-        });
-        return;
-      }
-
-      const targets = scene.actions && scene.actions.length > 0 ? scene.actions : computeSceneTargets(scene.id);
-      let turnedOn = 0;
-      let turnedOff = 0;
-      targets.forEach(({ deviceId, turnOn }) => {
-        const d = devices.find((x) => x.id === deviceId);
-        if (!d) return;
-
-        // Optimistic UI update
-        updateDevice(deviceId, {
-          isOn: turnOn,
-          watts: turnOn ? d.watts : Math.min(d.watts, 1),
-        });
-
-        // Publish command
-        mqttService.publish(`home/${homeId}/cmd/${deviceId}/set`, { on: turnOn });
-        if (turnOn) turnedOn++;
-        else turnedOff++;
-      });
-
-      toast({ title: `Activated: ${scene.name}`, description: `Turned on ${turnedOn}, turned off ${turnedOff}.` });
-    },
-    [computeSceneTargets, devices, homeId, navigate, updateDevice]
-  );
-
   const onChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    setDraft((prev) => {
+      if (name === "thresholdW" || name === "minutes" || name === "timeHour" || name === "timeMinute") {
+        return { ...prev, [name]: Number(value) };
+      }
+      return { ...prev, [name]: value };
+    });
+  }, []);
+
+  const toggleScheduleDay = useCallback((day: ScheduleDay) => {
     setDraft((prev) => ({
       ...prev,
-      [name]: name === "thresholdW" || name === "minutes" ? Number(value) : value,
-    }) as RuleDraft);
+      scheduleDays: prev.scheduleDays.includes(day)
+        ? prev.scheduleDays.filter((d) => d !== day)
+        : [...prev.scheduleDays, day],
+    }));
   }, []);
 
   const addRule = useCallback(() => {
     const nextErrors: Record<string, string> = {};
     if (!draft.deviceId) nextErrors.deviceId = "Select a device";
-    if (!draft.thresholdW || draft.thresholdW < 1) nextErrors.thresholdW = "Enter a positive threshold";
-    if (!draft.minutes || draft.minutes < 1) nextErrors.minutes = "Enter minutes ≥ 1";
-    if (draft.action === "activateScene" && !draft.sceneId) nextErrors.sceneId = "Select a scene";
+    
+    if (draft.triggerType === "power") {
+      if (!draft.thresholdW || draft.thresholdW < 1) nextErrors.thresholdW = "Enter a positive threshold";
+      if (!draft.minutes || draft.minutes < 1) nextErrors.minutes = "Enter minutes ≥ 1";
+    } else if (draft.triggerType === "time") {
+      if (draft.timeHour < 0 || draft.timeHour > 23) nextErrors.timeHour = "Hour must be 0-23";
+      if (draft.timeMinute < 0 || draft.timeMinute > 59) nextErrors.timeMinute = "Minute must be 0-59";
+    } else if (draft.triggerType === "schedule") {
+      if (draft.scheduleDays.length === 0) nextErrors.scheduleDays = "Select at least one day";
+      if (!draft.scheduleTime) nextErrors.scheduleTime = "Enter a time";
+    }
+    
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
 
@@ -218,166 +94,54 @@ export const Automations: React.FC = () => {
     const next = [newRule, ...rules].slice(0, 50);
     saveRules(next);
     setShowBuilder(false);
+    toast({ title: "Rule created", description: "Automation rule added successfully" });
   }, [draft, rules, saveRules]);
 
   const removeRule = useCallback(
     (id: string) => {
       saveRules(rules.filter((r) => r.id !== id));
+      toast({ title: "Rule deleted" });
     },
     [rules, saveRules]
   );
 
-  const sceneNameFor = useCallback((id?: string) => scenes.find((s) => s.id === id)?.name || id || "scene", [scenes]);
+  const toggleRule = useCallback(
+    (id: string) => {
+      const next = rules.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r));
+      saveRules(next);
+      const rule = next.find((r) => r.id === id);
+      toast({ title: rule?.enabled ? "Rule enabled" : "Rule disabled" });
+    },
+    [rules, saveRules]
+  );
+
+  const getRuleDescription = useCallback((rule: RuleDraft & { id: string }) => {
+    const device = devices.find((d) => d.id === rule.deviceId);
+    const deviceName = device?.name ?? rule.deviceId;
+    
+    let trigger = "";
+    if (rule.triggerType === "power") {
+      trigger = `if power > ${rule.thresholdW}W for ${rule.minutes} min`;
+    } else if (rule.triggerType === "time") {
+      const hour = String(rule.timeHour).padStart(2, "0");
+      const minute = String(rule.timeMinute).padStart(2, "0");
+      trigger = `at ${hour}:${minute} daily`;
+    } else if (rule.triggerType === "schedule") {
+      const days = rule.scheduleDays.map((d) => d.slice(0, 3)).join(", ");
+      trigger = `on ${days} at ${rule.scheduleTime}`;
+    }
+    
+    return { deviceName, trigger };
+  }, [devices]);
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-white text-xl font-bold mb-4">Quick Scenes</h2>
-        <div className="grid grid-cols-2 gap-4">
-          {scenes.map((scene) => (
-            <button
-              key={scene.id}
-              onClick={() => activateScene(scene)}
-              className="bg-gray-800 hover:bg-gray-700/60 rounded-xl p-6 text-center transition-all border border-gray-700"
-            >
-              <div className="text-4xl mb-2">{scene.icon}</div>
-              <div className="text-white font-semibold">{scene.name}</div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* My Scenes (customizable) */}
       <div className="bg-gray-800 rounded-xl p-6">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-white font-semibold">My Scenes</h2>
-          <button
-            onClick={openNewScene}
-            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold"
-          >
-            + Add Scene
-          </button>
-        </div>
-
-        {showSceneEditor && (
-          <div className="bg-gray-800 rounded-lg p-4 mb-4 border border-gray-700">
-            <h3 className="text-white font-semibold mb-3">{editingSceneId ? "Edit Scene" : "Create Scene"}</h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="sm:col-span-2">
-                <label htmlFor="sceneName" className="text-gray-400 text-sm">
-                  Name
-                </label>
-                <input
-                  id="sceneName"
-                  type="text"
-                  value={sceneDraft.name}
-                  onChange={(e) => setSceneDraft({ ...sceneDraft, name: e.target.value })}
-                  className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1"
-                />
-              </div>
-              <div>
-                <label htmlFor="sceneIcon" className="text-gray-400 text-sm">
-                  Icon
-                </label>
-                <input
-                  id="sceneIcon"
-                  type="text"
-                  value={sceneDraft.icon}
-                  onChange={(e) => setSceneDraft({ ...sceneDraft, icon: e.target.value })}
-                  className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1"
-                  placeholder="e.g., 🌙"
-                />
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <h4 className="text-white font-semibold mb-2">Devices</h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {devices.map((d) => {
-                  const idx = sceneDraft.actions.findIndex((a) => a.deviceId === d.id);
-                  const turnOn = idx >= 0 ? sceneDraft.actions[idx].turnOn : d.isOn;
-                  return (
-                    <label key={d.id} className="flex items-center justify-between bg-gray-700/60 rounded px-3 py-2">
-                      <span className="text-gray-200 text-sm">{d.name}</span>
-                      <input
-                        type="checkbox"
-                        checked={turnOn}
-                        onChange={(e) => {
-                          const next = [...sceneDraft.actions];
-                          const i = next.findIndex((a) => a.deviceId === d.id);
-                          if (i >= 0) next[i] = { deviceId: d.id, turnOn: e.target.checked };
-                          else next.push({ deviceId: d.id, turnOn: e.target.checked });
-                          setSceneDraft({ ...sceneDraft, actions: next });
-                        }}
-                      />
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex gap-2 mt-3">
-              {editingSceneId && (
-                <button
-                  onClick={() => editingSceneId && deleteScene(editingSceneId)}
-                  className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-semibold"
-                >
-                  Delete
-                </button>
-              )}
-              <div className="flex-1" />
-              <button
-                onClick={() => setShowSceneEditor(false)}
-                className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-semibold"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveSceneDraft}
-                className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-semibold"
-              >
-                Save Scene
-              </button>
-            </div>
+          <div>
+            <h2 className="text-white font-semibold text-lg">Automation Rules</h2>
+            <p className="text-gray-400 text-sm">Create smart rules to automate your devices</p>
           </div>
-        )}
-
-        {customScenes.length === 0 ? (
-          <div className="text-gray-400 text-sm">No custom scenes yet.</div>
-        ) : (
-          <div className="grid grid-cols-2 gap-4">
-            {customScenes.map((scene) => (
-              <div key={scene.id} className="bg-gray-800 border border-gray-700 rounded-xl p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="text-2xl">{scene.icon}</div>
-                    <div className="text-white font-semibold">{scene.name}</div>
-                  </div>
-                  <div className="text-xs text-gray-400">{scene.actions.length} devices</div>
-                </div>
-                <div className="flex gap-2 mt-3">
-                  <button
-                    onClick={() => activateScene(scene)}
-                    className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 rounded-lg text-sm font-semibold"
-                  >
-                    Activate
-                  </button>
-                  <button
-                    onClick={() => openEditScene(scene)}
-                    className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm font-semibold"
-                  >
-                    Edit
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="bg-gray-800 rounded-xl p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-white font-semibold">Automation Rules</h2>
           <button
             onClick={() => setShowBuilder((s) => !s)}
             className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-semibold"
@@ -387,111 +151,213 @@ export const Automations: React.FC = () => {
         </div>
 
         {showBuilder && (
-          <div className="bg-gray-800 rounded-lg p-4 mb-4 border border-gray-700">
-            <h3 className="text-white font-semibold mb-3">Create Rule</h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label htmlFor="deviceId" className="text-gray-400 text-sm">
-                  IF device
-                </label>
-                <select
-                  id="deviceId"
-                  name="deviceId"
-                  value={draft.deviceId}
-                  onChange={onChange}
-                  className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1"
-                >
-                  <option value="">Select device...</option>
-                  {devices.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.deviceId && <p className="text-xs text-red-400 mt-1">{errors.deviceId}</p>}
-              </div>
-
-              <div>
-                <label htmlFor="thresholdW" className="text-gray-400 text-sm">
-                  Exceeds (W)
-                </label>
-                <input
-                  id="thresholdW"
-                  name="thresholdW"
-                  type="number"
-                  value={draft.thresholdW}
-                  onChange={onChange}
-                  className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1"
-                />
-                {errors.thresholdW && <p className="text-xs text-red-400 mt-1">{errors.thresholdW}</p>}
-              </div>
-
-              <div>
-                <label htmlFor="minutes" className="text-gray-400 text-sm">
-                  For (minutes)
-                </label>
-                <input
-                  id="minutes"
-                  name="minutes"
-                  type="number"
-                  value={draft.minutes}
-                  onChange={onChange}
-                  className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1"
-                />
-                {errors.minutes && <p className="text-xs text-red-400 mt-1">{errors.minutes}</p>}
-              </div>
-
-              <div>
-                <label htmlFor="action" className="text-gray-400 text-sm">
-                  THEN
-                </label>
-                <select
-                  id="action"
-                  name="action"
-                  value={draft.action}
-                  onChange={onChange}
-                  className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1"
-                >
-                  <option value="notify">Send notification</option>
-                  <option value="turnOff">Turn off device</option>
-                  <option value="activateScene">Activate scene</option>
-                </select>
-              </div>
-
-              {draft.action === "activateScene" && (
-                <div>
-                  <label htmlFor="sceneId" className="text-gray-400 text-sm">
-                    Scene
-                  </label>
-                  <select
-                    id="sceneId"
-                    name="sceneId"
-                    value={draft.sceneId || ""}
-                    onChange={onChange}
-                    className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1"
-                  >
-                    <option value="">Select scene...</option>
-                    {scenes.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                  {errors.sceneId && <p className="text-xs text-red-400 mt-1">{errors.sceneId}</p>}
-                </div>
-              )}
+          <div className="bg-gray-900 rounded-lg p-4 mb-4 border border-gray-700">
+            <h3 className="text-white font-semibold mb-3">Create Automation Rule</h3>
+            
+            {/* Device Selection */}
+            <div className="mb-4">
+              <label htmlFor="deviceId" className="text-gray-400 text-sm font-medium block mb-2">
+                Device
+              </label>
+              <select
+                id="deviceId"
+                name="deviceId"
+                value={draft.deviceId}
+                onChange={onChange}
+                className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+              >
+                <option value="">Select device...</option>
+                {devices.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+              {errors.deviceId && <p className="text-xs text-red-400 mt-1">{errors.deviceId}</p>}
             </div>
 
-            <div className="flex gap-2 mt-3">
+            {/* Trigger Type Selection */}
+            <div className="mb-4">
+              <label className="text-gray-400 text-sm font-medium block mb-2">Trigger Type</label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDraft({ ...draft, triggerType: "power" })}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                    draft.triggerType === "power"
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                  }`}
+                >
+                  ⚡ Power
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDraft({ ...draft, triggerType: "time" })}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                    draft.triggerType === "time"
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                  }`}
+                >
+                  🕐 Time
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDraft({ ...draft, triggerType: "schedule" })}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                    draft.triggerType === "schedule"
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                  }`}
+                >
+                  📅 Schedule
+                </button>
+              </div>
+            </div>
+
+            {/* Power Trigger Fields */}
+            {draft.triggerType === "power" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label htmlFor="thresholdW" className="text-gray-400 text-sm">
+                    Power Threshold (W)
+                  </label>
+                  <input
+                    id="thresholdW"
+                    name="thresholdW"
+                    type="number"
+                    value={draft.thresholdW}
+                    onChange={onChange}
+                    className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
+                  />
+                  {errors.thresholdW && <p className="text-xs text-red-400 mt-1">{errors.thresholdW}</p>}
+                </div>
+                <div>
+                  <label htmlFor="minutes" className="text-gray-400 text-sm">
+                    Duration (minutes)
+                  </label>
+                  <input
+                    id="minutes"
+                    name="minutes"
+                    type="number"
+                    value={draft.minutes}
+                    onChange={onChange}
+                    className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
+                  />
+                  {errors.minutes && <p className="text-xs text-red-400 mt-1">{errors.minutes}</p>}
+                </div>
+              </div>
+            )}
+
+            {/* Time Trigger Fields */}
+            {draft.triggerType === "time" && (
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label htmlFor="timeHour" className="text-gray-400 text-sm">
+                    Hour (0-23)
+                  </label>
+                  <input
+                    id="timeHour"
+                    name="timeHour"
+                    type="number"
+                    min="0"
+                    max="23"
+                    value={draft.timeHour}
+                    onChange={onChange}
+                    className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
+                  />
+                  {errors.timeHour && <p className="text-xs text-red-400 mt-1">{errors.timeHour}</p>}
+                </div>
+                <div>
+                  <label htmlFor="timeMinute" className="text-gray-400 text-sm">
+                    Minute (0-59)
+                  </label>
+                  <input
+                    id="timeMinute"
+                    name="timeMinute"
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={draft.timeMinute}
+                    onChange={onChange}
+                    className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
+                  />
+                  {errors.timeMinute && <p className="text-xs text-red-400 mt-1">{errors.timeMinute}</p>}
+                </div>
+              </div>
+            )}
+
+            {/* Schedule Trigger Fields */}
+            {draft.triggerType === "schedule" && (
+              <div className="mb-4">
+                <label className="text-gray-400 text-sm block mb-2">Days of Week</label>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as ScheduleDay[]).map(
+                    (day) => (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => toggleScheduleDay(day)}
+                        className={`px-3 py-1 rounded text-sm font-semibold transition-colors ${
+                          draft.scheduleDays.includes(day)
+                            ? "bg-blue-500 text-white"
+                            : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                        }`}
+                      >
+                        {day.slice(0, 3).toUpperCase()}
+                      </button>
+                    )
+                  )}
+                </div>
+                {errors.scheduleDays && <p className="text-xs text-red-400 mb-2">{errors.scheduleDays}</p>}
+                
+                <label htmlFor="scheduleTime" className="text-gray-400 text-sm">
+                  Time
+                </label>
+                <input
+                  id="scheduleTime"
+                  name="scheduleTime"
+                  type="time"
+                  value={draft.scheduleTime}
+                  onChange={onChange}
+                  className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
+                />
+                {errors.scheduleTime && <p className="text-xs text-red-400 mt-1">{errors.scheduleTime}</p>}
+              </div>
+            )}
+
+            {/* Action Selection */}
+            <div className="mb-4">
+              <label htmlFor="action" className="text-gray-400 text-sm font-medium block mb-2">
+                Action
+              </label>
+              <select
+                id="action"
+                name="action"
+                value={draft.action}
+                onChange={onChange}
+                className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+              >
+                <option value="notify">📢 Send notification</option>
+                <option value="turnOff">⚫ Turn off device</option>
+                <option value="turnOn">🟢 Turn on device</option>
+              </select>
+            </div>
+
+            <div className="flex gap-2 mt-4">
               <button
                 onClick={addRule}
-                className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 rounded font-semibold"
+                className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 rounded-lg font-semibold transition-colors"
               >
                 Save Rule
               </button>
               <button
-                onClick={() => setShowBuilder(false)}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded font-semibold"
+                onClick={() => {
+                  setShowBuilder(false);
+                  setErrors({});
+                }}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg font-semibold transition-colors"
               >
                 Cancel
               </button>
@@ -500,33 +366,73 @@ export const Automations: React.FC = () => {
         )}
 
         {rules.length === 0 ? (
-          <div className="text-gray-400 text-center py-8">No automation rules configured yet</div>
+          <div className="text-center py-12">
+            <div className="text-6xl mb-4">🤖</div>
+            <div className="text-gray-400 text-sm">No automation rules configured yet</div>
+            <div className="text-gray-500 text-xs mt-1">Click "+ New Rule" to create your first automation</div>
+          </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {rules.map((rule) => {
-              const device = devices.find((d) => d.id === rule.deviceId);
-              const sceneName = rule.action === "activateScene" ? sceneNameFor(rule.sceneId) : undefined;
+              const { deviceName, trigger } = getRuleDescription(rule);
+              const isEnabled = rule.enabled !== false;
+              
               return (
                 <div
                   key={rule.id}
-                  className="flex items-center justify-between bg-gray-800 rounded-lg p-3 border border-gray-700"
+                  className={`rounded-lg p-4 border transition-all ${
+                    isEnabled
+                      ? "bg-gray-800/80 border-gray-700"
+                      : "bg-gray-900/50 border-gray-800 opacity-60"
+                  }`}
                 >
-                  <div className="text-white/90 text-sm">
-                    <span className="font-semibold">{device?.name ?? rule.deviceId}</span>{" "}
-                    if &gt; {rule.thresholdW}W for {rule.minutes} min → {rule.action}
-                    {sceneName ? `: ${sceneName}` : ""}
-                    {rule.lastTriggered ? (
-                      <span className="text-xs text-gray-500"> last {new Date(rule.lastTriggered).toLocaleString()}</span>
-                    ) : null}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span
+                          className={`inline-block w-2 h-2 rounded-full ${
+                            isEnabled ? "bg-green-500" : "bg-gray-600"
+                          }`}
+                        />
+                        <span className="text-white font-semibold">{deviceName}</span>
+                        <span className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-300">
+                          {rule.triggerType}
+                        </span>
+                      </div>
+                      
+                      <div className="text-gray-300 text-sm mb-1">
+                        {trigger} → <span className="text-blue-400">{rule.action}</span>
+                      </div>
+                      
+                      {rule.lastTriggered && (
+                        <div className="text-xs text-gray-500">
+                          Last triggered: {new Date(rule.lastTriggered).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => toggleRule(rule.id)}
+                        className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
+                          isEnabled
+                            ? "bg-green-500/20 text-green-400 hover:bg-green-500/30"
+                            : "bg-gray-700 text-gray-400 hover:bg-gray-600"
+                        }`}
+                        title={isEnabled ? "Disable rule" : "Enable rule"}
+                      >
+                        {isEnabled ? "ON" : "OFF"}
+                      </button>
+                      <button
+                        onClick={() => removeRule(rule.id)}
+                        className="text-gray-400 hover:text-red-400 px-2 py-1 transition-colors"
+                        aria-label="Remove rule"
+                        title="Delete rule"
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => removeRule(rule.id)}
-                    className="text-gray-400 hover:text-red-400 text-sm"
-                    aria-label="Remove rule"
-                    title="Remove rule"
-                  >
-                    ✕
-                  </button>
                 </div>
               );
             })}
