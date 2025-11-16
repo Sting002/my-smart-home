@@ -7,9 +7,24 @@ import { mqttService } from "../services/mqttService";
 import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { useNavigate } from "react-router-dom";
+import { getDailyStats } from "@/api/history";
 
 export const Dashboard: React.FC = () => {
-  const { devices, alerts, currency, tariff, homeId, updateDevice, toggleDevice } = useEnergy();
+  const {
+    devices,
+    alerts,
+    currency,
+    tariff,
+    homeId,
+    updateDevice,
+    toggleDevice,
+    monthlyBudget,
+    touEnabled,
+    touPeakPrice,
+    touOffpeakPrice,
+    touOffpeakStart,
+    touOffpeakEnd,
+  } = useEnergy();
   const navigate = useNavigate();
   const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [yesterdayKwh, setYesterdayKwh] = useState<number | null>(null);
@@ -19,31 +34,29 @@ export const Dashboard: React.FC = () => {
     setLastUpdate(Date.now());
   }, [devices]);
 
-  // Load yesterday's data from localStorage for comparison
   useEffect(() => {
-    const stored = localStorage.getItem("yesterdayTotalKwh");
-    if (stored) {
-      const parsed = parseFloat(stored);
-      if (!isNaN(parsed)) setYesterdayKwh(parsed);
-    }
-  }, []);
-
-  // Save today's total at midnight for tomorrow's comparison
-  useEffect(() => {
-    const now = new Date();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(0, 0, 0, 0);
-    const msUntilMidnight = tomorrow.getTime() - now.getTime();
-
-    const timer = setTimeout(() => {
-      const totalKwh = devices.reduce((sum, d) => sum + d.kwhToday, 0);
-      localStorage.setItem("yesterdayTotalKwh", totalKwh.toString());
-      setYesterdayKwh(totalKwh);
-    }, msUntilMidnight);
-
-    return () => clearTimeout(timer);
-  }, [devices]);
+    let alive = true;
+    (async () => {
+      try {
+        const now = new Date();
+        const yesterday = new Date(now);
+        yesterday.setDate(now.getDate() - 1);
+        const dateString = yesterday.toISOString().slice(0, 10);
+        const stats = await getDailyStats({ startDate: dateString, endDate: dateString });
+        if (!alive) return;
+        const total = stats.reduce(
+          (sum, stat) => sum + Number(stat.total_kwh || 0),
+          0
+        );
+        setYesterdayKwh(total);
+      } catch (err) {
+        console.warn("Failed to load yesterday stats", err);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [homeId]);
 
   // Derive current totals without extra state
   const totalWatts = useMemo(
@@ -104,33 +117,33 @@ export const Dashboard: React.FC = () => {
   }, []);
 
   const estimatedCost = useMemo(() => {
-    try {
-      const touEnabled = localStorage.getItem("touEnabled") === "true";
-      if (!touEnabled) {
-        const cost = todayKwh * tariff;
-        return Number.isFinite(cost) ? cost.toFixed(2) : "0.00";
-      }
-      const toNum = (value: string | null, fallback: number): number => {
-        const parsed = Number(value);
-        return Number.isFinite(parsed) ? parsed : fallback;
-      };
-      const peak = toNum(localStorage.getItem("touPeakPrice"), tariff);
-      const offp = toNum(localStorage.getItem("touOffpeakPrice"), tariff);
-      const start = String(localStorage.getItem("touOffpeakStart") || "22:00");
-      const end = String(localStorage.getItem("touOffpeakEnd") || "06:00");
-      const t = new Date();
-      const mins = t.getHours() * 60 + t.getMinutes();
-      const toM = (s: string) => { const [h,m] = s.split(":").map(Number); return h*60 + (m||0); };
-      const sM = toM(start), eM = toM(end);
-      const inOff = sM < eM ? (mins >= sM && mins < eM) : (mins >= sM || mins < eM);
-      const price = inOff ? offp : peak;
-      const cost = todayKwh * price;
-      return Number.isFinite(cost) ? cost.toFixed(2) : "0.00";
-    } catch {
-      const cost = todayKwh * tariff;
-      return Number.isFinite(cost) ? cost.toFixed(2) : "0.00";
-    }
-  }, [todayKwh, tariff]);
+    const toMinutes = (value: string) => {
+      const [h, m] = value.split(":").map(Number);
+      return h * 60 + (m || 0);
+    };
+    const price = (() => {
+      if (!touEnabled) return tariff;
+      const startMinutes = toMinutes(touOffpeakStart);
+      const endMinutes = toMinutes(touOffpeakEnd);
+      const now = new Date();
+      const mins = now.getHours() * 60 + now.getMinutes();
+      const inOff =
+        startMinutes < endMinutes
+          ? mins >= startMinutes && mins < endMinutes
+          : mins >= startMinutes || mins < endMinutes;
+      return inOff ? touOffpeakPrice : touPeakPrice;
+    })();
+    const cost = todayKwh * price;
+    return Number.isFinite(cost) ? cost.toFixed(2) : "0.00";
+  }, [
+    todayKwh,
+    tariff,
+    touEnabled,
+    touOffpeakEnd,
+    touOffpeakPrice,
+    touOffpeakStart,
+    touPeakPrice,
+  ]);
 
   const topConsumers = useMemo(
     () => [...devices].sort((a, b) => b.kwhToday - a.kwhToday).slice(0, 5),

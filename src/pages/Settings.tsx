@@ -1,9 +1,11 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useEnergy } from "../contexts/EnergyContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { mqttService } from "@/services/mqttService";
-// remove theme provider usage
+import { useOnboardingConfig, DEFAULT_BROKER_URL } from "@/hooks/useOnboardingConfig";
+import { updateOnboardingConfig } from "@/api/onboarding";
+import { removeDevice as apiRemoveDevice } from "@/api/devices";
 
 type ExportShape = {
   homeId: string;
@@ -11,56 +13,131 @@ type ExportShape = {
   tariff: number;
   devices: unknown;
   exportDate: string;
+  monthlyBudget: number;
+  touEnabled: boolean;
+  touPeakPrice: number;
+  touOffpeakPrice: number;
+  touOffpeakStart: string;
+  touOffpeakEnd: string;
+  alertTtlMinutes: number;
+};
+
+type SettingsForm = {
+  homeId: string;
+  currency: string;
+  tariff: number;
+  monthlyBudget: number;
+  alertTtlMinutes: number;
+  touEnabled: boolean;
+  touPeakPrice: number;
+  touOffpeakPrice: number;
+  touOffpeakStart: string;
+  touOffpeakEnd: string;
+};
+
+const DEFAULTS: SettingsForm = {
+  homeId: "home1",
+  currency: "USD",
+  tariff: 0.12,
+  monthlyBudget: 0,
+  alertTtlMinutes: 5,
+  touEnabled: false,
+  touPeakPrice: 0.2,
+  touOffpeakPrice: 0.12,
+  touOffpeakStart: "22:00",
+  touOffpeakEnd: "06:00",
 };
 
 export const Settings: React.FC = () => {
+  const navigate = useNavigate();
   const {
+    devices,
+    refreshBrokerConfig,
     homeId,
     setHomeId,
     currency,
     setCurrency,
     tariff,
     setTariff,
-    devices,
-    refreshBrokerConfig,
+    monthlyBudget,
+    setMonthlyBudget,
+    alertTtlMinutes,
+    setAlertTtlMinutes,
+    touEnabled,
+    setTouEnabled,
+    touPeakPrice,
+    setTouPeakPrice,
+    touOffpeakPrice,
+    setTouOffpeakPrice,
+    touOffpeakStart,
+    setTouOffpeakStart,
+    touOffpeakEnd,
+    setTouOffpeakEnd,
+    addDevice,
+    removeDevice,
   } = useEnergy();
-  // theme removed
+  const { logout, user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const { config: onboardingConfig, refresh: refreshOnboarding } = useOnboardingConfig();
 
-  // ✅ In use below (MQTT section + Save button)
+  const [form, setForm] = useState<SettingsForm>(() => ({
+    homeId,
+    currency,
+    tariff,
+    monthlyBudget,
+    alertTtlMinutes,
+    touEnabled,
+    touPeakPrice,
+    touOffpeakPrice,
+    touOffpeakStart,
+    touOffpeakEnd,
+  }));
+
+  useEffect(() => {
+    setForm({
+      homeId,
+      currency,
+      tariff,
+      monthlyBudget,
+      alertTtlMinutes,
+      touEnabled,
+      touPeakPrice,
+      touOffpeakPrice,
+      touOffpeakStart,
+      touOffpeakEnd,
+    });
+  }, [
+    homeId,
+    currency,
+    tariff,
+    monthlyBudget,
+    alertTtlMinutes,
+    touEnabled,
+    touPeakPrice,
+    touOffpeakPrice,
+    touOffpeakStart,
+    touOffpeakEnd,
+  ]);
+
   const [brokerUrl, setBrokerUrl] = useState(
-    localStorage.getItem("brokerUrl") || "ws://localhost:9001/mqtt"
+    onboardingConfig.brokerUrl || DEFAULT_BROKER_URL
   );
-  // Energy cost & budget (simple TOU)
-  const [monthlyBudget, setMonthlyBudget] = useState<number>(() => {
-    const v = localStorage.getItem("monthlyBudget");
-    return v ? Number(v) : 0;
-  });
-  const [touEnabled, setTouEnabled] = useState<boolean>(() => localStorage.getItem("touEnabled") === "true");
-  const [peakPrice, setPeakPrice] = useState<number>(() => {
-    const v = localStorage.getItem("touPeakPrice");
-    return v ? Number(v) : tariff;
-  });
-  const [offpeakPrice, setOffpeakPrice] = useState<number>(() => {
-    const v = localStorage.getItem("touOffpeakPrice");
-    return v ? Number(v) : tariff;
-  });
-  const [offStart, setOffStart] = useState<string>(() => localStorage.getItem("touOffpeakStart") || "22:00");
-  const [offEnd, setOffEnd] = useState<string>(() => localStorage.getItem("touOffpeakEnd") || "06:00");
+  useEffect(() => {
+    setBrokerUrl(onboardingConfig.brokerUrl || DEFAULT_BROKER_URL);
+  }, [onboardingConfig.brokerUrl]);
 
-  // ✅ In use below (top success banner + import success)
   const [showSuccess, setShowSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
-
-  // ✅ In use below (import error message)
   const [importErr, setImportErr] = useState<string | null>(null);
-
-  // ✅ In use below (Import button)
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  const { logout, user } = useAuth();
-  const isAdmin = user?.role === "admin";
-  const navigate = useNavigate();
+  const onFieldChange = useCallback(
+    <K extends keyof SettingsForm>(key: K, value: SettingsForm[K]) => {
+      setForm((prev) => ({ ...prev, [key]: value }));
+    },
+    []
+  );
 
   const handleLogout = useCallback(async () => {
     try {
@@ -71,56 +148,95 @@ export const Settings: React.FC = () => {
     }
   }, [logout, navigate]);
 
-  // ✅ Uses brokerUrl state; shows success banner
+  const persistFormPreferences = useCallback(() => {
+    if (form.homeId !== homeId) setHomeId(form.homeId.trim() || DEFAULTS.homeId);
+    if (form.currency !== currency) setCurrency(form.currency);
+    if (form.tariff !== tariff) setTariff(form.tariff || DEFAULTS.tariff);
+    if (form.monthlyBudget !== monthlyBudget)
+      setMonthlyBudget(form.monthlyBudget || 0);
+    if (form.alertTtlMinutes !== alertTtlMinutes)
+      setAlertTtlMinutes(form.alertTtlMinutes || DEFAULTS.alertTtlMinutes);
+    if (form.touEnabled !== touEnabled) setTouEnabled(form.touEnabled);
+    if (form.touPeakPrice !== touPeakPrice)
+      setTouPeakPrice(form.touPeakPrice || DEFAULTS.touPeakPrice);
+    if (form.touOffpeakPrice !== touOffpeakPrice)
+      setTouOffpeakPrice(form.touOffpeakPrice || DEFAULTS.touOffpeakPrice);
+    if (form.touOffpeakStart !== touOffpeakStart)
+      setTouOffpeakStart(form.touOffpeakStart || DEFAULTS.touOffpeakStart);
+    if (form.touOffpeakEnd !== touOffpeakEnd)
+      setTouOffpeakEnd(form.touOffpeakEnd || DEFAULTS.touOffpeakEnd);
+  }, [
+    alertTtlMinutes,
+    currency,
+    form.alertTtlMinutes,
+    form.currency,
+    form.homeId,
+    form.monthlyBudget,
+    form.tariff,
+    form.touEnabled,
+    form.touOffpeakEnd,
+    form.touOffpeakPrice,
+    form.touOffpeakStart,
+    form.touPeakPrice,
+    homeId,
+    monthlyBudget,
+    setAlertTtlMinutes,
+    setCurrency,
+    setHomeId,
+    setMonthlyBudget,
+    setTariff,
+    setTouEnabled,
+    setTouOffpeakEnd,
+    setTouOffpeakPrice,
+    setTouOffpeakStart,
+    setTouPeakPrice,
+    tariff,
+    touEnabled,
+    touOffpeakEnd,
+    touOffpeakPrice,
+    touOffpeakStart,
+    touPeakPrice,
+  ]);
+
   const handleSave = useCallback(async () => {
     setSaveError(null);
     setShowSuccess(false);
     setSavingSettings(true);
+    try {
+      persistFormPreferences();
 
-    // Persist pricing/budget regardless of broker connection
-    localStorage.setItem("monthlyBudget", String(monthlyBudget || 0));
-    localStorage.setItem("touEnabled", touEnabled ? "true" : "false");
-    localStorage.setItem("touPeakPrice", String(peakPrice || 0));
-    localStorage.setItem("touOffpeakPrice", String(offpeakPrice || 0));
-    localStorage.setItem("touOffpeakStart", offStart || "22:00");
-    localStorage.setItem("touOffpeakEnd", offEnd || "06:00");
-
-    const trimmedBroker = brokerUrl.trim();
-    const previous = localStorage.getItem("brokerUrl") || "ws://localhost:9001/mqtt";
-    const brokerChanged = previous !== trimmedBroker;
-
-    if (brokerChanged) {
-      try {
+      const trimmedBroker = brokerUrl.trim() || DEFAULT_BROKER_URL;
+      const brokerChanged = trimmedBroker !== onboardingConfig.brokerUrl;
+      if (brokerChanged) {
         await mqttService.connectAndWait(trimmedBroker, 4000, {
           keepalive: 30,
           reconnectPeriod: 1000,
         });
-        localStorage.setItem("brokerUrl", trimmedBroker);
+        await updateOnboardingConfig({
+          brokerUrl: trimmedBroker,
+          onboarded: "true",
+        });
+        refreshOnboarding();
         refreshBrokerConfig();
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Failed to connect to broker";
-        setSaveError(message);
-        setSavingSettings(false);
-        return;
       }
-    }
 
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 3000);
-    setSavingSettings(false);
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to save settings";
+      setSaveError(message);
+    } finally {
+      setSavingSettings(false);
+    }
   }, [
     brokerUrl,
-    monthlyBudget,
-    touEnabled,
-    peakPrice,
-    offpeakPrice,
-    offStart,
-    offEnd,
+    onboardingConfig.brokerUrl,
+    persistFormPreferences,
     refreshBrokerConfig,
+    refreshOnboarding,
   ]);
 
-  // ✅ Used by “Export Data (JSON)”
   const handleExportData = useCallback(() => {
     const data: ExportShape = {
       homeId,
@@ -128,17 +244,38 @@ export const Settings: React.FC = () => {
       tariff,
       devices,
       exportDate: new Date().toISOString(),
+      monthlyBudget,
+      touEnabled,
+      touPeakPrice,
+      touOffpeakPrice,
+      touOffpeakStart,
+      touOffpeakEnd,
+      alertTtlMinutes,
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json",
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `energy-data-${Date.now()}.json`;
     a.click();
-  }, [homeId, currency, tariff, devices]);
+  }, [
+    alertTtlMinutes,
+    currency,
+    devices,
+    homeId,
+    monthlyBudget,
+    tariff,
+    touEnabled,
+    touOffpeakEnd,
+    touOffpeakPrice,
+    touOffpeakStart,
+    touPeakPrice,
+  ]);
 
-  // ✅ Used by “Import Data (JSON)”
   const onChooseFile = useCallback(() => fileRef.current?.click(), []);
+
   const onFileSelected = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       setImportErr(null);
@@ -147,63 +284,142 @@ export const Settings: React.FC = () => {
       try {
         const text = await file.text();
         const parsed = JSON.parse(text);
-        if (typeof parsed.homeId === "string") setHomeId(parsed.homeId);
-        if (typeof parsed.currency === "string") setCurrency(parsed.currency);
-        if (typeof parsed.tariff === "number") setTariff(parsed.tariff);
-        if (parsed.devices) localStorage.setItem("devices", JSON.stringify(parsed.devices));
+        const updates: Partial<SettingsForm> = {};
+        if (typeof parsed.homeId === "string") {
+          updates.homeId = parsed.homeId;
+          setHomeId(parsed.homeId);
+        }
+        if (typeof parsed.currency === "string") {
+          updates.currency = parsed.currency;
+          setCurrency(parsed.currency);
+        }
+        if (typeof parsed.tariff === "number") {
+          updates.tariff = parsed.tariff;
+          setTariff(parsed.tariff);
+        }
+        if (typeof parsed.monthlyBudget === "number") {
+          updates.monthlyBudget = parsed.monthlyBudget;
+          setMonthlyBudget(parsed.monthlyBudget);
+        }
+        if (typeof parsed.alertTtlMinutes === "number") {
+          updates.alertTtlMinutes = parsed.alertTtlMinutes;
+          setAlertTtlMinutes(parsed.alertTtlMinutes);
+        }
+        if (typeof parsed.touEnabled === "boolean") {
+          updates.touEnabled = parsed.touEnabled;
+          setTouEnabled(parsed.touEnabled);
+        }
+        if (typeof parsed.touPeakPrice === "number") {
+          updates.touPeakPrice = parsed.touPeakPrice;
+          setTouPeakPrice(parsed.touPeakPrice);
+        }
+        if (typeof parsed.touOffpeakPrice === "number") {
+          updates.touOffpeakPrice = parsed.touOffpeakPrice;
+          setTouOffpeakPrice(parsed.touOffpeakPrice);
+        }
+        if (typeof parsed.touOffpeakStart === "string") {
+          updates.touOffpeakStart = parsed.touOffpeakStart;
+          setTouOffpeakStart(parsed.touOffpeakStart);
+        }
+        if (typeof parsed.touOffpeakEnd === "string") {
+          updates.touOffpeakEnd = parsed.touOffpeakEnd;
+          setTouOffpeakEnd(parsed.touOffpeakEnd);
+        }
+        if (Array.isArray(parsed.devices)) {
+          for (const candidate of parsed.devices) {
+            if (candidate && typeof candidate.id === "string") {
+              addDevice(candidate);
+            }
+          }
+        }
+        if (Object.keys(updates).length) {
+          setForm((prev) => ({ ...prev, ...updates }));
+        }
         setShowSuccess(true);
         setTimeout(() => setShowSuccess(false), 3000);
       } catch {
         setImportErr("Invalid file format");
       } finally {
-        // allow selecting the same file again later
         e.target.value = "";
       }
     },
-    [setHomeId, setCurrency, setTariff]
+    [
+      addDevice,
+      setAlertTtlMinutes,
+      setCurrency,
+      setHomeId,
+      setMonthlyBudget,
+      setTariff,
+      setTouEnabled,
+      setTouOffpeakEnd,
+      setTouOffpeakPrice,
+      setTouOffpeakStart,
+      setTouPeakPrice,
+    ]
   );
 
-  // ✅ Used by “Clear All Data”
   const onResetAll = useCallback(async () => {
     if (!isAdmin) {
       alert("Only administrators can clear all data.");
       return;
     }
-    const confirmTxt = prompt('Type "RESET" to clear all local data (devices, settings).');
+    const confirmTxt = prompt('Type "RESET" to clear all stored data.');
     if (confirmTxt !== "RESET") return;
 
     try {
-      // Attempt to clear retained simulator readings so UI doesn't repopulate immediately
-      if (!mqttService.isConnected()) {
-        // Try a quick connect using the current broker URL to clear retained messages
-        const url = localStorage.getItem("brokerUrl") || brokerUrl;
-        if (url) {
-          try {
-            await mqttService.connectAndWait(url, 2500, { keepalive: 15, reconnectPeriod: 500 });
-          } catch {
-            // ignore connect failure; proceed to clear local data only
-          }
-        }
-      }
-      if (mqttService.isConnected()) {
-        devices.forEach((d: { id: string }) => {
-          const powerTopic = `home/${homeId}/sensor/${d.id}/power`;
-          const energyTopic = `home/${homeId}/sensor/${d.id}/energy`;
-          // Per MQTT spec: zero-length retained payload clears retained message
-          mqttService.publishRaw(powerTopic, "", { retain: true });
-          mqttService.publishRaw(energyTopic, "", { retain: true });
-        });
-        // Close the connection after clearing
-        mqttService.disconnect();
-      }
-    } catch (e) {
-      // non-fatal – proceed to clear local data
-      console.warn("Failed to clear retained topics:", e);
-    }
+      setHomeId(DEFAULTS.homeId);
+      setCurrency(DEFAULTS.currency);
+      setTariff(DEFAULTS.tariff);
+      setMonthlyBudget(DEFAULTS.monthlyBudget);
+      setAlertTtlMinutes(DEFAULTS.alertTtlMinutes);
+      setTouEnabled(DEFAULTS.touEnabled);
+      setTouPeakPrice(DEFAULTS.touPeakPrice);
+      setTouOffpeakPrice(DEFAULTS.touOffpeakPrice);
+      setTouOffpeakStart(DEFAULTS.touOffpeakStart);
+      setTouOffpeakEnd(DEFAULTS.touOffpeakEnd);
+      setForm({ ...DEFAULTS });
 
-    localStorage.clear();
-    window.location.reload();
-  }, [devices, homeId, brokerUrl, isAdmin]);
+      for (const device of devices) {
+        try {
+          await apiRemoveDevice(device.id);
+        } catch (err) {
+          console.warn("Failed to delete device from backend", err);
+        }
+        removeDevice(device.id);
+      }
+
+      await updateOnboardingConfig({
+        brokerUrl: DEFAULT_BROKER_URL,
+        onboarded: "false",
+      });
+      refreshOnboarding();
+      refreshBrokerConfig();
+      setBrokerUrl(DEFAULT_BROKER_URL);
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+    } catch (err) {
+      console.error("Failed to reset data", err);
+      setSaveError("Failed to clear data");
+    }
+  }, [
+    devices,
+    isAdmin,
+    refreshBrokerConfig,
+    refreshOnboarding,
+    removeDevice,
+    setAlertTtlMinutes,
+    setCurrency,
+    setHomeId,
+    setMonthlyBudget,
+    setTariff,
+    setTouEnabled,
+    setTouOffpeakEnd,
+    setTouOffpeakPrice,
+    setTouOffpeakStart,
+    setTouPeakPrice,
+  ]);
+
+  const touDisabled = !form.touEnabled;
 
   return (
     <div className="space-y-6">
@@ -221,17 +437,16 @@ export const Settings: React.FC = () => {
           </p>
           <button
             onClick={() => navigate("/admin")}
-            className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-lg font-semibold"
+            className="w-full bg-blue-500 hover:bg-blue-600 text-white py-3 rounded-lg font-semibold"
           >
             Open Admin Dashboard
           </button>
         </div>
       )}
 
-      {/* Home Profile */}
       <div className="bg-gray-800 rounded-xl p-6">
-        <h2 className="text-white font-semibold mb-4">Home Profile</h2>
-        <div className="space-y-4">
+        <h2 className="text-white font-semibold mb-4">Energy Preferences</h2>
+        <div className="grid gap-4">
           <div>
             <label htmlFor="homeId" className="text-gray-400 text-sm">
               Home ID
@@ -240,9 +455,9 @@ export const Settings: React.FC = () => {
               id="homeId"
               name="homeId"
               type="text"
-              value={homeId}
-              onChange={(e) => setHomeId(e.target.value)}
-              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1 "
+              value={form.homeId}
+              onChange={(e) => onFieldChange("homeId", e.target.value)}
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
             />
           </div>
           <div>
@@ -252,9 +467,9 @@ export const Settings: React.FC = () => {
             <select
               id="currency"
               name="currency"
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1 "
+              value={form.currency}
+              onChange={(e) => onFieldChange("currency", e.target.value)}
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
             >
               <option value="USD">USD ($)</option>
               <option value="EUR">EUR (€)</option>
@@ -273,77 +488,115 @@ export const Settings: React.FC = () => {
               name="tariff"
               type="number"
               step="0.01"
-              value={tariff}
-              onChange={(e) => setTariff(parseFloat(e.target.value))}
-              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1 "
+              value={form.tariff}
+              onChange={(e) => onFieldChange("tariff", Number(e.target.value))}
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+            />
+          </div>
+          <div>
+            <label htmlFor="monthlyBudget" className="text-gray-400 text-sm">
+              Monthly Budget ({form.currency})
+            </label>
+            <input
+              id="monthlyBudget"
+              name="monthlyBudget"
+              type="number"
+              step="1"
+              value={form.monthlyBudget}
+              onChange={(e) =>
+                onFieldChange("monthlyBudget", Number(e.target.value))
+              }
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+            />
+          </div>
+          <div>
+            <label htmlFor="alertTtlMinutes" className="text-gray-400 text-sm">
+              Alert retention (minutes)
+            </label>
+            <input
+              id="alertTtlMinutes"
+              name="alertTtlMinutes"
+              type="number"
+              step="1"
+              value={form.alertTtlMinutes}
+              onChange={(e) =>
+                onFieldChange("alertTtlMinutes", Number(e.target.value))
+              }
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
             />
           </div>
         </div>
       </div>
 
-      {/* Energy Cost & Budget */}
-      <div className="bg-gray-800 rounded-xl p-6">
-        <h2 className="text-white font-semibold mb-4">Energy Cost & Budget</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="bg-gray-800 rounded-xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
           <div>
-            <label className="text-gray-400 text-sm">Monthly Budget ({currency})</label>
+            <h2 className="text-white font-semibold">Time-of-Use Pricing</h2>
+            <p className="text-gray-400 text-sm">
+              Configure peak and off-peak pricing windows.
+            </p>
+          </div>
+          <label className="inline-flex items-center gap-2 text-gray-300 text-sm">
             <input
-              type="number"
-              value={monthlyBudget}
-              onChange={(e) => setMonthlyBudget(Number(e.target.value))}
-              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
+              type="checkbox"
+              checked={form.touEnabled}
+              onChange={(e) => onFieldChange("touEnabled", e.target.checked)}
             />
-          </div>
-          <div className="flex items-end gap-2">
-            <input id="touEnabled" type="checkbox" checked={touEnabled} onChange={(e) => setTouEnabled(e.target.checked)} />
-            <label htmlFor="touEnabled" className="text-gray-300 text-sm">Enable Time‑of‑Use (TOU)</label>
-          </div>
+            Enable TOU
+          </label>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
           <div>
-            <label className="text-gray-400 text-sm">Peak Price ({currency}/kWh)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={peakPrice}
-              onChange={(e) => setPeakPrice(parseFloat(e.target.value))}
-              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
-              disabled={!touEnabled}
-            />
-          </div>
-          <div>
-            <label className="text-gray-400 text-sm">Off‑peak Price ({currency}/kWh)</label>
+            <label className="text-gray-400 text-sm">Peak price ({form.currency})</label>
             <input
               type="number"
               step="0.01"
-              value={offpeakPrice}
-              onChange={(e) => setOffpeakPrice(parseFloat(e.target.value))}
-              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
-              disabled={!touEnabled}
+              disabled={touDisabled}
+              value={form.touPeakPrice}
+              onChange={(e) =>
+                onFieldChange("touPeakPrice", Number(e.target.value))
+              }
+              className="w-full bg-gray-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg mt-1"
             />
           </div>
           <div>
-            <label className="text-gray-400 text-sm">Off‑peak Start (HH:MM)</label>
+            <label className="text-gray-400 text-sm">
+              Off-peak price ({form.currency})
+            </label>
             <input
-              type="time"
-              value={offStart}
-              onChange={(e) => setOffStart(e.target.value)}
-              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
-              disabled={!touEnabled}
+              type="number"
+              step="0.01"
+              disabled={touDisabled}
+              value={form.touOffpeakPrice}
+              onChange={(e) =>
+                onFieldChange("touOffpeakPrice", Number(e.target.value))
+              }
+              className="w-full bg-gray-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg mt-1"
             />
           </div>
           <div>
-            <label className="text-gray-400 text-sm">Off‑peak End (HH:MM)</label>
+            <label className="text-gray-400 text-sm">Off-peak start</label>
             <input
               type="time"
-              value={offEnd}
-              onChange={(e) => setOffEnd(e.target.value)}
-              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
-              disabled={!touEnabled}
+              disabled={touDisabled}
+              value={form.touOffpeakStart}
+              onChange={(e) => onFieldChange("touOffpeakStart", e.target.value)}
+              className="w-full bg-gray-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg mt-1"
+            />
+          </div>
+          <div>
+            <label className="text-gray-400 text-sm">Off-peak end</label>
+            <input
+              type="time"
+              disabled={touDisabled}
+              value={form.touOffpeakEnd}
+              onChange={(e) => onFieldChange("touOffpeakEnd", e.target.value)}
+              className="w-full bg-gray-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg mt-1"
             />
           </div>
         </div>
       </div>
 
-      {/* MQTT Connection */}
       <div className="bg-gray-800 rounded-xl p-6">
         <h2 className="text-white font-semibold mb-4">MQTT Connection</h2>
         <div className="space-y-4">
@@ -368,7 +621,6 @@ export const Settings: React.FC = () => {
         </div>
       </div>
 
-      {/* Data & Privacy */}
       <div className="bg-gray-800 rounded-xl p-6">
         <h2 className="text-white font-semibold mb-4">Data & Privacy</h2>
         {importErr && <div className="text-red-400 text-sm mb-2">{importErr}</div>}
@@ -410,10 +662,7 @@ export const Settings: React.FC = () => {
         </div>
       </div>
 
-      {/* Save & Logout */}
-      {saveError && (
-        <div className="text-red-400 text-sm">{saveError}</div>
-      )}
+      {saveError && <div className="text-red-400 text-sm">{saveError}</div>}
       <button
         onClick={handleSave}
         disabled={savingSettings}
@@ -438,5 +687,3 @@ export const Settings: React.FC = () => {
 };
 
 export default Settings;
-
-

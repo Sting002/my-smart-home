@@ -5,6 +5,12 @@ import { toast } from "@/hooks/use-toast";
 type Args = {
   devices: Device[];
   tariff: number;
+  monthlyBudget: number;
+  touEnabled: boolean;
+  touPeakPrice: number;
+  touOffpeakPrice: number;
+  touOffpeakStart: string;
+  touOffpeakEnd: string;
 };
 
 type BudgetLevel = "none" | "75" | "90" | "100";
@@ -16,11 +22,27 @@ function currentBudgetLevel(ratio: number): BudgetLevel {
   return "none";
 }
 
-export function useBudgetAlerts({ devices, tariff }: Args) {
+const toMinutes = (value: string) => {
+  const [hh, mm] = value.split(":").map((x) => Number(x));
+  return hh * 60 + (mm || 0);
+};
+
+export function useBudgetAlerts({
+  devices,
+  tariff,
+  monthlyBudget,
+  touEnabled,
+  touPeakPrice,
+  touOffpeakPrice,
+  touOffpeakStart,
+  touOffpeakEnd,
+}: Args) {
   const lastLevelRef = useRef<BudgetLevel>("none");
   const lastDayRef = useRef<string>(new Date().toDateString());
 
   useEffect(() => {
+    if (!monthlyBudget) return undefined;
+
     const timer = setInterval(() => {
       const today = new Date().toDateString();
       if (today !== lastDayRef.current) {
@@ -28,33 +50,25 @@ export function useBudgetAlerts({ devices, tariff }: Args) {
         lastLevelRef.current = "none";
       }
 
-      const budgetMonthly = Number(localStorage.getItem("monthlyBudget") || 0) || 0;
-      if (!budgetMonthly) return;
-      const budgetDaily = budgetMonthly / 30;
+      const budgetDaily = monthlyBudget / 30;
 
-      const touEnabled = localStorage.getItem("touEnabled") === "true";
       const priceNow = (() => {
         if (!touEnabled) return tariff;
-        const peak = Number(localStorage.getItem("touPeakPrice") || tariff) || tariff;
-        const offPeak = Number(localStorage.getItem("touOffpeakPrice") || tariff) || tariff;
-        const start = String(localStorage.getItem("touOffpeakStart") || "22:00");
-        const end = String(localStorage.getItem("touOffpeakEnd") || "06:00");
-        const toMinutes = (value: string) => {
-          const [hh, mm] = value.split(":").map((x) => Number(x));
-          return hh * 60 + (mm || 0);
-        };
-        const startMinutes = toMinutes(start);
-        const endMinutes = toMinutes(end);
+        const startMinutes = toMinutes(touOffpeakStart);
+        const endMinutes = toMinutes(touOffpeakEnd);
         const now = new Date();
         const nowMinutes = now.getHours() * 60 + now.getMinutes();
         const inOffPeak =
           startMinutes < endMinutes
             ? nowMinutes >= startMinutes && nowMinutes < endMinutes
             : nowMinutes >= startMinutes || nowMinutes < endMinutes;
-        return inOffPeak ? offPeak : peak;
+        return inOffPeak ? touOffpeakPrice : touPeakPrice;
       })();
 
-      const todayKwh = devices.reduce((sum, device) => sum + Number(device.kwhToday || 0), 0);
+      const todayKwh = devices.reduce(
+        (sum, device) => sum + Number(device.kwhToday || 0),
+        0
+      );
       const todayCost = todayKwh * priceNow;
       const level = currentBudgetLevel(todayCost / budgetDaily);
 
@@ -75,5 +89,14 @@ export function useBudgetAlerts({ devices, tariff }: Args) {
     }, 60_000);
 
     return () => clearInterval(timer);
-  }, [devices, tariff]);
+  }, [
+    devices,
+    tariff,
+    monthlyBudget,
+    touEnabled,
+    touPeakPrice,
+    touOffpeakPrice,
+    touOffpeakStart,
+    touOffpeakEnd,
+  ]);
 }

@@ -4,12 +4,15 @@ const mqtt = require('mqtt');
 
 const BROKER_URL = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1884';
 const EVAL_INTERVAL = parseInt(process.env.RULE_EVAL_INTERVAL_MS || '30000'); // 30 seconds
+const DAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 class RuleEngine {
   constructor() {
     this.mqttClient = null;
     this.evalTimer = null;
     this.deviceStates = new Map();
+    this.powerConditionTimers = new Map();
+    this.timeConditionLog = new Map();
   }
 
   start() {
@@ -50,7 +53,7 @@ class RuleEngine {
           const actions = JSON.parse(rule.actions);
           
           // Check if all conditions are met
-          const conditionsMet = await this.checkConditions(conditions, rule.home_id);
+          const conditionsMet = await this.checkConditions(conditions, rule.home_id, rule.id);
           
           if (conditionsMet) {
             console.log(`✅ Rule triggered: ${rule.name}`);
@@ -63,14 +66,14 @@ class RuleEngine {
     });
   }
 
-  async checkConditions(conditions, homeId) {
+  async checkConditions(conditions, homeId, ruleId) {
     // If no conditions, always true
     if (!conditions || conditions.length === 0) return true;
 
     // Check each condition (AND logic)
     for (const condition of conditions) {
       try {
-        const met = await this.checkSingleCondition(condition, homeId);
+        const met = await this.checkSingleCondition(condition, homeId, ruleId);
         if (!met) return false; // Short-circuit on first failure
       } catch (err) {
         console.error('Error checking condition:', err.message);
@@ -81,45 +84,68 @@ class RuleEngine {
     return true; // All conditions met
   }
 
-  async checkSingleCondition(condition, homeId) {
+  async checkSingleCondition(condition, homeId, ruleId) {
     switch (condition.type) {
       case 'power_threshold': {
-        const { deviceId, operator, threshold } = condition;
+        const { deviceId, operator, threshold, durationMinutes } = condition;
         const reading = await this.getLatestPowerReading(deviceId);
-        
+
         if (!reading) return false;
-        
-        return this.evaluateOperator(reading.watts, operator, threshold);
+
+        const matches = this.evaluateOperator(reading.watts, operator, threshold);
+        if (!durationMinutes || durationMinutes <= 0) {
+          return matches;
+        }
+
+        const key = `${ruleId || "rule"}:${deviceId || "device"}`;
+        if (matches) {
+          const since = this.powerConditionTimers.get(key) ?? Date.now();
+          this.powerConditionTimers.set(key, since);
+          const elapsed = (Date.now() - since) / 60000;
+          return elapsed >= durationMinutes;
+        }
+        this.powerConditionTimers.delete(key);
+        return false;
       }
 
       case 'time_of_day': {
-        const hour = new Date().getHours();
-        const minute = new Date().getMinutes();
+        const now = new Date();
+        const hour = now.getHours();
+        const minute = now.getMinutes();
         const currentMinutes = hour * 60 + minute;
-        
-        const { start, end } = condition; // In format "HH:MM" or just hour number
-        
-        let startMinutes, endMinutes;
-        
-        if (typeof start === 'string') {
-          const [sh, sm] = start.split(':').map(Number);
-          startMinutes = sh * 60 + (sm || 0);
-        } else {
-          startMinutes = start * 60;
+        const { start, end, mode } = condition;
+
+        const parseMinutes = (value) => {
+          if (typeof value === 'string') {
+            const [h, m] = value.split(':').map(Number);
+            return (h || 0) * 60 + (m || 0);
+          }
+          return Number(value || 0) * 60;
+        };
+
+        if (mode === 'exact') {
+          const startMinutes = parseMinutes(start);
+          const targetHour = Math.floor(startMinutes / 60);
+          const targetMinute = startMinutes % 60;
+          const key = `${ruleId || "rule"}:${targetHour}:${targetMinute}`;
+          const todayKey = now.toDateString();
+          if (hour === targetHour && minute === targetMinute) {
+            if (this.timeConditionLog.get(key) === todayKey) {
+              return false;
+            }
+            this.timeConditionLog.set(key, todayKey);
+            return true;
+          }
+          return false;
         }
-        
-        if (typeof end === 'string') {
-          const [eh, em] = end.split(':').map(Number);
-          endMinutes = eh * 60 + (em || 0);
-        } else {
-          endMinutes = end * 60;
-        }
-        
-        // Handle overnight ranges
+
+        const startMinutes = parseMinutes(start);
+        const endMinutes = parseMinutes(end);
+
         if (endMinutes < startMinutes) {
           return currentMinutes >= startMinutes || currentMinutes < endMinutes;
         }
-        
+
         return currentMinutes >= startMinutes && currentMinutes < endMinutes;
       }
 
@@ -144,9 +170,15 @@ class RuleEngine {
 
       case 'day_of_week': {
         const currentDay = new Date().getDay(); // 0 = Sunday, 6 = Saturday
-        const { days } = condition; // Array like [1, 2, 3, 4, 5] for weekdays
-        
-        return days.includes(currentDay);
+        const { days = [] } = condition;
+        const normalized = days.map((day) => {
+          if (typeof day === 'string') {
+            const idx = DAY_ORDER.indexOf(day.toLowerCase());
+            return idx >= 0 ? idx : null;
+          }
+          return day;
+        });
+        return normalized.includes(currentDay);
       }
 
       default:

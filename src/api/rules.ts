@@ -10,6 +10,10 @@ export interface RuleCondition {
   end?: string | number;
   state?: 'on' | 'off';
   days?: number[];
+  durationMinutes?: number;
+  mode?: string;
+  time?: string;
+  uiType?: string;
 }
 
 export interface RuleAction {
@@ -19,6 +23,7 @@ export interface RuleAction {
   severity?: 'info' | 'warning' | 'danger';
   message?: string;
   sceneName?: string;
+  uiType?: string;
 }
 
 export interface Rule {

@@ -1,67 +1,228 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { useEnergy } from "../contexts/EnergyContext";
-import { mqttService } from "@/services/mqttService";
 import { toast } from "@/hooks/use-toast";
-import { ToastAction } from "@/components/ui/toast";
-import { useNavigate } from "react-router-dom";
+import { useServerRules } from "@/hooks/useServerRules";
+import type { CreateRuleRequest, Rule } from "@/api/rules";
 
 type RuleAction = "notify" | "turnOff" | "turnOn";
 type TriggerType = "power" | "time" | "schedule";
-type ScheduleDay = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
+type ScheduleDay =
+  | "sunday"
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday";
 
 interface RuleDraft {
+  id?: string;
   deviceId: string;
   triggerType: TriggerType;
-  // Power trigger fields
   thresholdW: number;
   minutes: number;
-  // Time trigger fields
   timeHour: number;
   timeMinute: number;
-  // Schedule trigger fields
   scheduleDays: ScheduleDay[];
   scheduleTime: string;
-  // Action
   action: RuleAction;
   enabled: boolean;
 }
 
-export const Automations: React.FC = () => {
-  const { devices, homeId, updateDevice } = useEnergy();
-  const navigate = useNavigate();
+type ListRule = RuleDraft & { id: string };
 
-  // Rule builder state
-  const [showBuilder, setShowBuilder] = useState(false);
-  const [draft, setDraft] = useState<RuleDraft>({
-    deviceId: "",
+const DAY_ORDER: ScheduleDay[] = [
+  "sunday",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+];
+const DAY_TO_INDEX: Record<ScheduleDay, number> = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+};
+
+const DEFAULT_DRAFT: RuleDraft = {
+  deviceId: "",
+  triggerType: "power",
+  thresholdW: 1000,
+  minutes: 5,
+  timeHour: 22,
+  timeMinute: 0,
+  scheduleDays: [],
+  scheduleTime: "22:00",
+  action: "notify",
+  enabled: true,
+};
+
+const pad = (value: number) => String(value).padStart(2, "0");
+
+const serializeRule = (draft: RuleDraft, homeId: string): CreateRuleRequest => {
+  const base: CreateRuleRequest = {
+    id: draft.id,
+    name: `Automation ${draft.deviceId}`,
+    enabled: draft.enabled,
+    homeId,
+    conditions: [],
+    actions: [],
+  };
+
+  if (draft.triggerType === "power") {
+    base.conditions.push({
+      type: "power_threshold",
+      uiType: "power",
+      deviceId: draft.deviceId,
+      operator: ">",
+      threshold: draft.thresholdW,
+      durationMinutes: draft.minutes,
+    });
+  } else if (draft.triggerType === "time") {
+    const time = `${pad(draft.timeHour)}:${pad(draft.timeMinute)}`;
+    base.conditions.push({
+      type: "time_of_day",
+      uiType: "time",
+      start: time,
+      end: time,
+      mode: "exact",
+    });
+  } else if (draft.triggerType === "schedule") {
+    const time = draft.scheduleTime || "22:00";
+    base.conditions.push({
+      type: "day_of_week",
+      uiType: "schedule",
+      days: draft.scheduleDays.map((d) => DAY_TO_INDEX[d]),
+    });
+    base.conditions.push({
+      type: "time_of_day",
+      uiType: "schedule",
+      start: time,
+      end: time,
+      mode: "exact",
+    });
+  }
+
+  if (draft.action === "turnOff" || draft.action === "turnOn") {
+    base.actions.push({
+      type: "set_device",
+      uiType: draft.action,
+      deviceId: draft.deviceId,
+      on: draft.action === "turnOn",
+    });
+  } else if (draft.action === "notify") {
+    base.actions.push({
+      type: "alert",
+      uiType: "notify",
+      severity: "info",
+      message: `Automation triggered for ${draft.deviceId}`,
+    });
+  }
+
+  return base;
+};
+
+const deserializeRule = (rule: Rule): ListRule | null => {
+  if (!rule.conditions?.length || !rule.actions?.length) return null;
+  const primaryCondition = rule.conditions[0];
+  const primaryAction = rule.actions[0];
+
+  const draft: ListRule = {
+    id: rule.id,
+    deviceId: primaryCondition.deviceId ?? primaryAction.deviceId ?? "",
     triggerType: "power",
     thresholdW: 1000,
-    minutes: 5,
+    minutes: primaryCondition.durationMinutes ?? 5,
     timeHour: 22,
     timeMinute: 0,
     scheduleDays: [],
     scheduleTime: "22:00",
     action: "notify",
-    enabled: true,
-  });
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [rules, setRules] = useState<(RuleDraft & { id: string; lastTriggered?: number })[]>(
-    () => JSON.parse(localStorage.getItem("rules") || "[]")
-  );
-  const saveRules = useCallback((next: typeof rules) => {
-    setRules(next);
-    localStorage.setItem("rules", JSON.stringify(next));
-  }, []);
+    enabled: rule.enabled,
+  } as ListRule;
 
-  const onChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setDraft((prev) => {
-      if (name === "thresholdW" || name === "minutes" || name === "timeHour" || name === "timeMinute") {
-        return { ...prev, [name]: Number(value) };
-      }
-      return { ...prev, [name]: value };
-    });
-  }, []);
+  if (primaryCondition.uiType === "time" || primaryCondition.mode === "exact") {
+    draft.triggerType = "time";
+    const [h, m] = String(primaryCondition.start ?? "0:0")
+      .split(":")
+      .map((val) => Number(val));
+    draft.timeHour = Number.isFinite(h) ? h : 0;
+    draft.timeMinute = Number.isFinite(m) ? m : 0;
+  } else if (primaryCondition.uiType === "schedule") {
+    draft.triggerType = "schedule";
+    const dayCondition = rule.conditions.find((c) => c.type === "day_of_week");
+    const timeCondition = rule.conditions.find((c) => c.type === "time_of_day");
+    if (dayCondition?.days?.length) {
+      draft.scheduleDays = dayCondition.days
+        .map((day) => DAY_ORDER[day] ?? null)
+        .filter((v): v is ScheduleDay => Boolean(v));
+    }
+    if (typeof timeCondition?.start === "string") {
+      draft.scheduleTime = timeCondition.start;
+    }
+  } else if (primaryCondition.type === "power_threshold") {
+    draft.triggerType = "power";
+    draft.thresholdW = primaryCondition.threshold ?? 1000;
+  }
+
+  if (primaryAction.uiType === "turnOff" || primaryAction.on === false) {
+    draft.action = "turnOff";
+  } else if (primaryAction.uiType === "turnOn" || primaryAction.on === true) {
+    draft.action = "turnOn";
+  } else if (primaryAction.type === "alert") {
+    draft.action = "notify";
+  }
+
+  return draft;
+};
+
+export const Automations: React.FC = () => {
+  const { devices, homeId } = useEnergy();
+  const [showBuilder, setShowBuilder] = useState(false);
+  const [draft, setDraft] = useState<RuleDraft>(DEFAULT_DRAFT);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const {
+    rules: serverRules,
+    loading,
+    error,
+    addRule: createRule,
+    toggleRule: toggleRuleOnServer,
+    removeRule: removeRuleOnServer,
+  } = useServerRules();
+
+  const rules = useMemo(
+    () =>
+      serverRules
+        .map(deserializeRule)
+        .filter((r): r is ListRule => Boolean(r))
+        .slice(0, 50),
+    [serverRules]
+  );
+
+  const onChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      const { name, value } = e.target;
+      setDraft((prev) => {
+        if (
+          name === "thresholdW" ||
+          name === "minutes" ||
+          name === "timeHour" ||
+          name === "timeMinute"
+        ) {
+          return { ...prev, [name]: Number(value) };
+        }
+        return { ...prev, [name]: value };
+      });
+    },
+    []
+  );
 
   const toggleScheduleDay = useCallback((day: ScheduleDay) => {
     setDraft((prev) => ({
@@ -72,67 +233,96 @@ export const Automations: React.FC = () => {
     }));
   }, []);
 
-  const addRule = useCallback(() => {
+  const validateDraft = useCallback(() => {
     const nextErrors: Record<string, string> = {};
     if (!draft.deviceId) nextErrors.deviceId = "Select a device";
-    
+
     if (draft.triggerType === "power") {
-      if (!draft.thresholdW || draft.thresholdW < 1) nextErrors.thresholdW = "Enter a positive threshold";
-      if (!draft.minutes || draft.minutes < 1) nextErrors.minutes = "Enter minutes ≥ 1";
+      if (!draft.thresholdW || draft.thresholdW < 1)
+        nextErrors.thresholdW = "Enter a positive threshold";
+      if (!draft.minutes || draft.minutes < 1)
+        nextErrors.minutes = "Enter minutes ≥ 1";
     } else if (draft.triggerType === "time") {
-      if (draft.timeHour < 0 || draft.timeHour > 23) nextErrors.timeHour = "Hour must be 0-23";
-      if (draft.timeMinute < 0 || draft.timeMinute > 59) nextErrors.timeMinute = "Minute must be 0-59";
+      if (draft.timeHour < 0 || draft.timeHour > 23)
+        nextErrors.timeHour = "Hour must be 0-23";
+      if (draft.timeMinute < 0 || draft.timeMinute > 59)
+        nextErrors.timeMinute = "Minute must be 0-59";
     } else if (draft.triggerType === "schedule") {
-      if (draft.scheduleDays.length === 0) nextErrors.scheduleDays = "Select at least one day";
+      if (draft.scheduleDays.length === 0)
+        nextErrors.scheduleDays = "Select at least one day";
       if (!draft.scheduleTime) nextErrors.scheduleTime = "Enter a time";
     }
-    
-    setErrors(nextErrors);
-    if (Object.keys(nextErrors).length) return;
 
-    const newRule = { ...draft, id: `${Date.now()}` } as RuleDraft & { id: string };
-    const next = [newRule, ...rules].slice(0, 50);
-    saveRules(next);
-    setShowBuilder(false);
-    toast({ title: "Rule created", description: "Automation rule added successfully" });
-  }, [draft, rules, saveRules]);
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  }, [draft]);
+
+  const handleCreateRule = useCallback(async () => {
+    if (!validateDraft()) return;
+    try {
+      await createRule(serializeRule(draft, homeId));
+      setShowBuilder(false);
+      setDraft(DEFAULT_DRAFT);
+      toast({ title: "Rule created", description: "Automation rule saved." });
+    } catch (err) {
+      console.error("Failed to create rule", err);
+      toast({ title: "Failed to create rule", description: "Try again later." });
+    }
+  }, [createRule, draft, homeId, validateDraft]);
 
   const removeRule = useCallback(
-    (id: string) => {
-      saveRules(rules.filter((r) => r.id !== id));
-      toast({ title: "Rule deleted" });
+    async (id: string) => {
+      try {
+        await removeRuleOnServer(id);
+        toast({ title: "Rule deleted" });
+      } catch (err) {
+        console.error("Failed to delete rule", err);
+        toast({ title: "Failed to delete rule", description: "Try again later." });
+      }
     },
-    [rules, saveRules]
+    [removeRuleOnServer]
   );
 
   const toggleRule = useCallback(
-    (id: string) => {
-      const next = rules.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r));
-      saveRules(next);
-      const rule = next.find((r) => r.id === id);
-      toast({ title: rule?.enabled ? "Rule enabled" : "Rule disabled" });
+    async (id: string) => {
+      try {
+        const result = await toggleRuleOnServer(id);
+        toast({
+          title: result.enabled ? "Rule enabled" : "Rule disabled",
+        });
+      } catch (err) {
+        console.error("Failed to toggle rule", err);
+        toast({ title: "Failed to toggle rule", description: "Try again later." });
+      }
     },
-    [rules, saveRules]
+    [toggleRuleOnServer]
   );
 
-  const getRuleDescription = useCallback((rule: RuleDraft & { id: string }) => {
-    const device = devices.find((d) => d.id === rule.deviceId);
-    const deviceName = device?.name ?? rule.deviceId;
-    
-    let trigger = "";
-    if (rule.triggerType === "power") {
-      trigger = `if power > ${rule.thresholdW}W for ${rule.minutes} min`;
-    } else if (rule.triggerType === "time") {
-      const hour = String(rule.timeHour).padStart(2, "0");
-      const minute = String(rule.timeMinute).padStart(2, "0");
-      trigger = `at ${hour}:${minute} daily`;
-    } else if (rule.triggerType === "schedule") {
-      const days = rule.scheduleDays.map((d) => d.slice(0, 3)).join(", ");
-      trigger = `on ${days} at ${rule.scheduleTime}`;
-    }
-    
-    return { deviceName, trigger };
-  }, [devices]);
+  const getRuleDescription = useCallback(
+    (rule: ListRule) => {
+      const device = devices.find((d) => d.id === rule.deviceId);
+      const deviceName = device?.name ?? rule.deviceId;
+
+      let trigger = "";
+      if (rule.triggerType === "power") {
+        trigger = `if power > ${rule.thresholdW}W for ${rule.minutes} min`;
+      } else if (rule.triggerType === "time") {
+        trigger = `at ${pad(rule.timeHour)}:${pad(rule.timeMinute)} daily`;
+      } else if (rule.triggerType === "schedule") {
+        trigger = `on ${rule.scheduleDays.join(", ")} at ${rule.scheduleTime}`;
+      }
+
+      const actionLabel =
+        rule.action === "notify"
+          ? "send notification"
+          : rule.action === "turnOff"
+          ? "turn off"
+          : "turn on";
+
+      return `${deviceName} - ${trigger}, ${actionLabel}`;
+    },
+    [devices]
+  );
 
   return (
     <div className="space-y-6">
@@ -140,310 +330,250 @@ export const Automations: React.FC = () => {
         <div className="flex justify-between items-center mb-4">
           <div>
             <h2 className="text-white font-semibold text-lg">Automation Rules</h2>
-            <p className="text-gray-400 text-sm">Create smart rules to automate your devices</p>
+            <p className="text-gray-400 text-sm">
+              Create smart rules to automate your devices
+            </p>
           </div>
           <button
             onClick={() => setShowBuilder((s) => !s)}
             className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-semibold"
           >
-            + New Rule
+            {showBuilder ? "Cancel" : "New Rule"}
           </button>
         </div>
 
         {showBuilder && (
           <div className="bg-gray-900 rounded-lg p-4 mb-4 border border-gray-700">
             <h3 className="text-white font-semibold mb-3">Create Automation Rule</h3>
-            
-            {/* Device Selection */}
-            <div className="mb-4">
-              <label htmlFor="deviceId" className="text-gray-400 text-sm font-medium block mb-2">
-                Device
-              </label>
-              <select
-                id="deviceId"
-                name="deviceId"
-                value={draft.deviceId}
-                onChange={onChange}
-                className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-              >
-                <option value="">Select device...</option>
-                {devices.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-              {errors.deviceId && <p className="text-xs text-red-400 mt-1">{errors.deviceId}</p>}
-            </div>
-
-            {/* Trigger Type Selection */}
-            <div className="mb-4">
-              <label className="text-gray-400 text-sm font-medium block mb-2">Trigger Type</label>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setDraft({ ...draft, triggerType: "power" })}
-                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                    draft.triggerType === "power"
-                      ? "bg-blue-500 text-white"
-                      : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                  }`}
-                >
-                  ⚡ Power
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDraft({ ...draft, triggerType: "time" })}
-                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                    draft.triggerType === "time"
-                      ? "bg-blue-500 text-white"
-                      : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                  }`}
-                >
-                  🕐 Time
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDraft({ ...draft, triggerType: "schedule" })}
-                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                    draft.triggerType === "schedule"
-                      ? "bg-blue-500 text-white"
-                      : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                  }`}
-                >
-                  📅 Schedule
-                </button>
-              </div>
-            </div>
-
-            {/* Power Trigger Fields */}
-            {draft.triggerType === "power" && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-                <div>
-                  <label htmlFor="thresholdW" className="text-gray-400 text-sm">
-                    Power Threshold (W)
-                  </label>
-                  <input
-                    id="thresholdW"
-                    name="thresholdW"
-                    type="number"
-                    value={draft.thresholdW}
-                    onChange={onChange}
-                    className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                  {errors.thresholdW && <p className="text-xs text-red-400 mt-1">{errors.thresholdW}</p>}
-                </div>
-                <div>
-                  <label htmlFor="minutes" className="text-gray-400 text-sm">
-                    Duration (minutes)
-                  </label>
-                  <input
-                    id="minutes"
-                    name="minutes"
-                    type="number"
-                    value={draft.minutes}
-                    onChange={onChange}
-                    className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                  {errors.minutes && <p className="text-xs text-red-400 mt-1">{errors.minutes}</p>}
-                </div>
-              </div>
-            )}
-
-            {/* Time Trigger Fields */}
-            {draft.triggerType === "time" && (
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div>
-                  <label htmlFor="timeHour" className="text-gray-400 text-sm">
-                    Hour (0-23)
-                  </label>
-                  <input
-                    id="timeHour"
-                    name="timeHour"
-                    type="number"
-                    min="0"
-                    max="23"
-                    value={draft.timeHour}
-                    onChange={onChange}
-                    className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                  {errors.timeHour && <p className="text-xs text-red-400 mt-1">{errors.timeHour}</p>}
-                </div>
-                <div>
-                  <label htmlFor="timeMinute" className="text-gray-400 text-sm">
-                    Minute (0-59)
-                  </label>
-                  <input
-                    id="timeMinute"
-                    name="timeMinute"
-                    type="number"
-                    min="0"
-                    max="59"
-                    value={draft.timeMinute}
-                    onChange={onChange}
-                    className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                  {errors.timeMinute && <p className="text-xs text-red-400 mt-1">{errors.timeMinute}</p>}
-                </div>
-              </div>
-            )}
-
-            {/* Schedule Trigger Fields */}
-            {draft.triggerType === "schedule" && (
-              <div className="mb-4">
-                <label className="text-gray-400 text-sm block mb-2">Days of Week</label>
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as ScheduleDay[]).map(
-                    (day) => (
-                      <button
-                        key={day}
-                        type="button"
-                        onClick={() => toggleScheduleDay(day)}
-                        className={`px-3 py-1 rounded text-sm font-semibold transition-colors ${
-                          draft.scheduleDays.includes(day)
-                            ? "bg-blue-500 text-white"
-                            : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                        }`}
-                      >
-                        {day.slice(0, 3).toUpperCase()}
-                      </button>
-                    )
-                  )}
-                </div>
-                {errors.scheduleDays && <p className="text-xs text-red-400 mb-2">{errors.scheduleDays}</p>}
-                
-                <label htmlFor="scheduleTime" className="text-gray-400 text-sm">
-                  Time
+            <div className="grid gap-4">
+              <div>
+                <label htmlFor="deviceId" className="text-gray-400 text-sm font-medium block mb-2">
+                  Device
                 </label>
-                <input
-                  id="scheduleTime"
-                  name="scheduleTime"
-                  type="time"
-                  value={draft.scheduleTime}
+                <select
+                  id="deviceId"
+                  name="deviceId"
+                  value={draft.deviceId}
                   onChange={onChange}
-                  className="w-full bg-gray-700 text-white px-3 py-2 rounded mt-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
-                />
-                {errors.scheduleTime && <p className="text-xs text-red-400 mt-1">{errors.scheduleTime}</p>}
+                  className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg"
+                >
+                  <option value="">Select device</option>
+                  {devices.map((device) => (
+                    <option key={device.id} value={device.id}>
+                      {device.name} ({device.room})
+                    </option>
+                  ))}
+                </select>
+                {errors.deviceId && <p className="text-red-400 text-xs mt-1">{errors.deviceId}</p>}
               </div>
-            )}
 
-            {/* Action Selection */}
-            <div className="mb-4">
-              <label htmlFor="action" className="text-gray-400 text-sm font-medium block mb-2">
-                Action
-              </label>
-              <select
-                id="action"
-                name="action"
-                value={draft.action}
-                onChange={onChange}
-                className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-              >
-                <option value="notify">📢 Send notification</option>
-                <option value="turnOff">⚫ Turn off device</option>
-                <option value="turnOn">🟢 Turn on device</option>
-              </select>
-            </div>
+              <div>
+                <label className="text-gray-400 text-sm font-medium block mb-2">
+                  Trigger Type
+                </label>
+                <select
+                  name="triggerType"
+                  value={draft.triggerType}
+                  onChange={onChange}
+                  className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg"
+                >
+                  <option value="power">Power threshold</option>
+                  <option value="time">Time of day</option>
+                  <option value="schedule">Weekly schedule</option>
+                </select>
+              </div>
 
-            <div className="flex gap-2 mt-4">
+              {draft.triggerType === "power" && (
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-gray-400 text-sm">Threshold (W)</label>
+                    <input
+                      type="number"
+                      name="thresholdW"
+                      value={draft.thresholdW}
+                      onChange={onChange}
+                      className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg"
+                    />
+                    {errors.thresholdW && (
+                      <p className="text-red-400 text-xs mt-1">{errors.thresholdW}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-gray-400 text-sm">Duration (minutes)</label>
+                    <input
+                      type="number"
+                      name="minutes"
+                      value={draft.minutes}
+                      onChange={onChange}
+                      className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg"
+                    />
+                    {errors.minutes && (
+                      <p className="text-red-400 text-xs mt-1">{errors.minutes}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {draft.triggerType === "time" && (
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-gray-400 text-sm">Hour</label>
+                    <input
+                      type="number"
+                      name="timeHour"
+                      value={draft.timeHour}
+                      onChange={onChange}
+                      className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg"
+                    />
+                    {errors.timeHour && (
+                      <p className="text-red-400 text-xs mt-1">{errors.timeHour}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-gray-400 text-sm">Minute</label>
+                    <input
+                      type="number"
+                      name="timeMinute"
+                      value={draft.timeMinute}
+                      onChange={onChange}
+                      className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg"
+                    />
+                    {errors.timeMinute && (
+                      <p className="text-red-400 text-xs mt-1">{errors.timeMinute}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {draft.triggerType === "schedule" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-gray-400 text-sm">Days</label>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {DAY_ORDER.map((day) => (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => toggleScheduleDay(day)}
+                          className={`px-3 py-1 rounded-full text-xs ${
+                            draft.scheduleDays.includes(day)
+                              ? "bg-green-500/20 text-green-300"
+                              : "bg-gray-700 text-gray-400"
+                          }`}
+                        >
+                          {day.slice(0, 3).toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                    {errors.scheduleDays && (
+                      <p className="text-red-400 text-xs mt-1">{errors.scheduleDays}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-gray-400 text-sm">Time</label>
+                    <input
+                      type="time"
+                      name="scheduleTime"
+                      value={draft.scheduleTime}
+                      onChange={onChange}
+                      className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg"
+                    />
+                    {errors.scheduleTime && (
+                      <p className="text-red-400 text-xs mt-1">{errors.scheduleTime}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="text-gray-400 text-sm font-medium block mb-2">
+                  Action
+                </label>
+                <select
+                  name="action"
+                  value={draft.action}
+                  onChange={onChange}
+                  className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg"
+                >
+                  <option value="notify">Send notification</option>
+                  <option value="turnOff">Turn device off</option>
+                  <option value="turnOn">Turn device on</option>
+                </select>
+              </div>
+
               <button
-                onClick={addRule}
-                className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 rounded-lg font-semibold transition-colors"
+                onClick={handleCreateRule}
+                className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-semibold"
               >
                 Save Rule
               </button>
-              <button
-                onClick={() => {
-                  setShowBuilder(false);
-                  setErrors({});
-                }}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg font-semibold transition-colors"
-              >
-                Cancel
-              </button>
             </div>
           </div>
         )}
 
-        {rules.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="text-6xl mb-4">🤖</div>
-            <div className="text-gray-400 text-sm">No automation rules configured yet</div>
-            <div className="text-gray-500 text-xs mt-1">Click "+ New Rule" to create your first automation</div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {rules.map((rule) => {
-              const { deviceName, trigger } = getRuleDescription(rule);
-              const isEnabled = rule.enabled !== false;
-              
-              return (
-                <div
-                  key={rule.id}
-                  className={`rounded-lg p-4 border transition-all ${
-                    isEnabled
-                      ? "bg-gray-800/80 border-gray-700"
-                      : "bg-gray-900/50 border-gray-800 opacity-60"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span
-                          className={`inline-block w-2 h-2 rounded-full ${
-                            isEnabled ? "bg-green-500" : "bg-gray-600"
-                          }`}
-                        />
-                        <span className="text-white font-semibold">{deviceName}</span>
-                        <span className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-300">
-                          {rule.triggerType}
-                        </span>
-                      </div>
-                      
-                      <div className="text-gray-300 text-sm mb-1">
-                        {trigger} → <span className="text-blue-400">{rule.action}</span>
-                      </div>
-                      
-                      {rule.lastTriggered && (
-                        <div className="text-xs text-gray-500">
-                          Last triggered: {new Date(rule.lastTriggered).toLocaleString()}
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => toggleRule(rule.id)}
-                        className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
-                          isEnabled
-                            ? "bg-green-500/20 text-green-400 hover:bg-green-500/30"
-                            : "bg-gray-700 text-gray-400 hover:bg-gray-600"
-                        }`}
-                        title={isEnabled ? "Disable rule" : "Enable rule"}
-                      >
-                        {isEnabled ? "ON" : "OFF"}
-                      </button>
-                      <button
-                        onClick={() => removeRule(rule.id)}
-                        className="text-gray-400 hover:text-red-400 px-2 py-1 transition-colors"
-                        aria-label="Remove rule"
-                        title="Delete rule"
-                      >
-                        🗑️
-                      </button>
-                    </div>
+        {loading && !rules.length && (
+          <p className="text-gray-400 text-sm">Loading automations…</p>
+        )}
+
+        {error && (
+          <p className="text-red-400 text-sm">
+            Failed to load rules. {error}
+          </p>
+        )}
+
+        {!loading && rules.length === 0 && !showBuilder && (
+          <p className="text-gray-400 text-sm">No automations yet. Create your first rule.</p>
+        )}
+
+        <div className="space-y-3">
+          {rules.map((rule) => {
+            const description = getRuleDescription(rule);
+            return (
+              <div
+                key={rule.id}
+                className="bg-gray-900 rounded-lg p-4 border border-gray-800 flex flex-col gap-2"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-white font-semibold">
+                      {description}
+                    </h4>
+                    <p className="text-gray-400 text-xs">
+                      Action:{" "}
+                      {rule.action === "notify"
+                        ? "Notify only"
+                        : rule.action === "turnOff"
+                        ? "Turn off device"
+                        : "Turn on device"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => toggleRule(rule.id)}
+                      className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
+                        rule.enabled
+                          ? "bg-green-500/20 text-green-300 hover:bg-green-500/30"
+                          : "bg-gray-700 text-gray-400 hover:bg-gray-600"
+                      }`}
+                    >
+                      {rule.enabled ? "ON" : "OFF"}
+                    </button>
+                    <button
+                      onClick={() => removeRule(rule.id)}
+                      className="text-gray-400 hover:text-red-400 px-2 py-1 transition-colors"
+                      aria-label="Delete rule"
+                    >
+                      ✕
+                    </button>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
 };
 
 export default Automations;
-
-
-

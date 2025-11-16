@@ -19,13 +19,6 @@ type ThemeContextType = {
 
 export const ThemeContext = createContext<ThemeContextType | null>(null);
 
-function getInitialTheme(defaultTheme: Theme): Theme {
-  if (typeof window === "undefined") return defaultTheme;
-  const saved = localStorage.getItem("theme");
-  if (saved === "dark" || saved === "light" || saved === "system") return saved;
-  return defaultTheme;
-}
-
 const applyThemeToDocument = (theme: Theme) => {
   const root = window.document.documentElement;
   root.classList.remove("light", "dark");
@@ -42,7 +35,7 @@ const ThemeProviderInner: React.FC<PropsWithChildren<{ defaultTheme?: Theme }>> 
   children,
   defaultTheme = "system",
 }) => {
-  const [theme, setThemeState] = useState<Theme>(() => getInitialTheme(defaultTheme));
+  const [theme, setThemeState] = useState<Theme>(defaultTheme);
 
   useEffect(() => {
     applyThemeToDocument(theme);
@@ -69,7 +62,6 @@ const ThemeProviderInner: React.FC<PropsWithChildren<{ defaultTheme?: Theme }>> 
   }, [theme]);
 
   const setTheme = (t: Theme) => {
-    localStorage.setItem("theme", t);
     setThemeState(t);
   };
 

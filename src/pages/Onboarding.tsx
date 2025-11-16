@@ -1,8 +1,10 @@
 // src/pages/Onboarding.tsx
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { mqttService } from "@/services/mqttService";
 import { useEnergy } from "@/contexts/EnergyContext";
+import { useOnboardingConfig } from "@/hooks/useOnboardingConfig";
+import { updateOnboardingConfig } from "@/api/onboarding";
 
 const isValidWsUrl = (val: string) => {
   try {
@@ -14,14 +16,19 @@ const isValidWsUrl = (val: string) => {
 };
 
 export const Onboarding: React.FC = () => {
+  const { config: initialConfig, refresh: refreshOnboardingConfig } = useOnboardingConfig();
   const [step, setStep] = useState(1);
-  const [brokerUrl, setBrokerUrl] = useState(
-    localStorage.getItem("brokerUrl") || "ws://localhost:9001/mqtt"
-  );
+  const [brokerUrl, setBrokerUrl] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string>("");
   const navigate = useNavigate();
   const { refreshBrokerConfig } = useEnergy();
+
+  useEffect(() => {
+    if (initialConfig.brokerUrl) {
+      setBrokerUrl(initialConfig.brokerUrl);
+    }
+  }, [initialConfig.brokerUrl]);
 
   const handleConnect = useCallback(async () => {
     setConnecting(true);
@@ -34,28 +41,22 @@ export const Onboarding: React.FC = () => {
     }
 
     try {
-      // ⬇️ 2nd arg is a NUMBER (timeout ms), not an options object
       await mqttService.connectAndWait(brokerUrl, 4000);
 
       const trimmed = brokerUrl.trim();
-      // Persist and mark onboarding complete
-      localStorage.setItem("brokerUrl", trimmed);
-      localStorage.setItem("onboarded", "true");
-      if (!localStorage.getItem("homeId")) {
-        localStorage.setItem("homeId", "home1");
-      }
+      await updateOnboardingConfig({ brokerUrl: trimmed, onboarded: "true" });
+      
+      refreshOnboardingConfig();
       refreshBrokerConfig();
 
-      // Go straight to the app (ProtectedRoute will allow it now)
       navigate("/dashboard", { replace: true });
     } catch (e) {
-      // Ensure any auto-reconnecting client from this failed attempt is torn down
       mqttService.disconnect();
       setError("Failed to connect to MQTT broker. Check URL and broker.");
     } finally {
       setConnecting(false);
     }
-  }, [brokerUrl, navigate, refreshBrokerConfig]);
+  }, [brokerUrl, navigate, refreshBrokerConfig, refreshOnboardingConfig]);
 
   return (
     <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">

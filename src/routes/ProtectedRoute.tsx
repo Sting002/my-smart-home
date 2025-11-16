@@ -2,12 +2,16 @@
 import React from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOnboardingConfig } from "@/hooks/useOnboardingConfig";
 
 const ProtectedRoute: React.FC = () => {
   const { user, ready } = useAuth();
   const loc = useLocation();
+  const { config: onboardingConfig, loaded: onboardingLoaded } = useOnboardingConfig();
 
-  if (!ready) return <div className="text-gray-200 p-4">Loading...</div>;
+  if (!ready || !onboardingLoaded) {
+    return <div className="text-gray-200 p-4">Loading...</div>;
+  }
 
   if (!user) return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
 
@@ -21,7 +25,7 @@ const ProtectedRoute: React.FC = () => {
     return <Navigate to="/dashboard" replace />;
   }
 
-  const onboarded = localStorage.getItem("onboarded") === "true";
+  const onboarded = onboardingConfig.onboarded;
   const isOnboardingRoute = loc.pathname.endsWith("/onboarding");
 
   if (!onboarded && !isOnboardingRoute) {

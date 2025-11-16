@@ -13,19 +13,23 @@ import { ToastAction } from "@/components/ui/toast";
 import {
   mqttService,
 } from "@/services/mqttService";
-import { fetchDevices as apiFetchDevices, upsertDevice as apiUpsertDevice } from "@/api/devices";
+import {
+  fetchDevices as apiFetchDevices,
+  upsertDevice as apiUpsertDevice,
+  removeDevice as apiRemoveDevice,
+} from "@/api/devices";
 import { useEnergyState } from "@/hooks/useEnergyState";
 import { useOnboardingConfig, DEFAULT_BROKER_URL } from "@/hooks/useOnboardingConfig";
 import { useMqttLifecycle } from "@/hooks/useMqttLifecycle";
 import { useMqttSubscriptions } from "@/hooks/useMqttSubscriptions";
-import { useAutomationRunner } from "@/hooks/useAutomationRunner";
 import { useBudgetAlerts } from "@/hooks/useBudgetAlerts";
+import { useDeviceGuards } from "@/hooks/useDeviceGuards";
+import { getAlerts as fetchServerAlerts } from "@/api/history";
 import type { Device, EnergyContextType } from "@/utils/energyContextTypes";
 
 const EnergyContext = createContext<EnergyContextType | undefined>(undefined);
 
 const MAX_POINTS = Number(import.meta.env?.VITE_MAX_CHART_POINTS || 120);
-const ALERT_TTL_MINUTES = Number(import.meta.env?.VITE_ALERT_TTL_MINUTES || 5);
 
 export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -40,13 +44,64 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
     setPowerHistory,
     blockedDeviceIds,
     setBlockedDeviceIds,
-    homeId,
-    setHomeId,
-    currency,
-    setCurrency,
-    tariff,
-    setTariff,
+    preferences,
+    setPreference,
   } = useEnergyState();
+
+  const {
+    homeId,
+    currency,
+    tariff,
+    monthlyBudget,
+    touEnabled,
+    touPeakPrice,
+    touOffpeakPrice,
+    touOffpeakStart,
+    touOffpeakEnd,
+    alertTtlMinutes,
+    scenes,
+  } = preferences;
+
+  const setHomeId = useCallback(
+    (value: string) => setPreference("homeId", value),
+    [setPreference]
+  );
+  const setCurrency = useCallback(
+    (value: string) => setPreference("currency", value),
+    [setPreference]
+  );
+  const setTariff = useCallback(
+    (value: number) => setPreference("tariff", value),
+    [setPreference]
+  );
+  const setMonthlyBudget = useCallback(
+    (value: number) => setPreference("monthlyBudget", value),
+    [setPreference]
+  );
+  const setTouEnabled = useCallback(
+    (value: boolean) => setPreference("touEnabled", value),
+    [setPreference]
+  );
+  const setTouPeakPrice = useCallback(
+    (value: number) => setPreference("touPeakPrice", value),
+    [setPreference]
+  );
+  const setTouOffpeakPrice = useCallback(
+    (value: number) => setPreference("touOffpeakPrice", value),
+    [setPreference]
+  );
+  const setTouOffpeakStart = useCallback(
+    (value: string) => setPreference("touOffpeakStart", value),
+    [setPreference]
+  );
+  const setTouOffpeakEnd = useCallback(
+    (value: string) => setPreference("touOffpeakEnd", value),
+    [setPreference]
+  );
+  const setAlertTtlMinutes = useCallback(
+    (value: number) => setPreference("alertTtlMinutes", value),
+    [setPreference]
+  );
 
   const { config: brokerConfig, refresh: refreshBrokerConfig } = useOnboardingConfig();
   const [connected, setConnected] = useState<boolean>(() => mqttService.isConnected());
@@ -54,15 +109,45 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     const timer = setInterval(() => {
       try {
-        const override = Number(localStorage.getItem("alertTtlMins") || "");
-        const ttl = override > 0 ? override : ALERT_TTL_MINUTES;
-        const cutoff = Date.now() - ttl * 60_000;
+        const ttlMinutes = alertTtlMinutes > 0 ? alertTtlMinutes : 5;
+        const cutoff = Date.now() - ttlMinutes * 60_000;
         setAlerts((prev) => prev.filter((a) => Number(a.timestamp || 0) >= cutoff));
-      } catch {
-        // ignore
+      } catch (err) {
+        console.warn("Failed to prune alerts", err);
       }
     }, 60_000);
     return () => clearInterval(timer);
+  }, [alertTtlMinutes, setAlerts]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const serverAlerts = await fetchServerAlerts({ limit: 20 });
+        if (!alive) return;
+        setAlerts((prev) => {
+          if (prev.length) return prev;
+          return serverAlerts.map((alert) => ({
+            id: alert.id,
+            type:
+              alert.severity === "danger"
+                ? "critical"
+                : alert.severity === "warning"
+                ? "warning"
+                : "info",
+            message: alert.message,
+            timestamp: alert.timestamp,
+            deviceId: alert.device_id || undefined,
+            payload: { ...alert, kind: "history" },
+          }));
+        });
+      } catch (err) {
+        console.warn("Failed to hydrate alerts from backend", err);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, [setAlerts]);
 
   useEffect(() => {
@@ -146,27 +231,21 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
   const computeSceneTargets = useCallback(
     (sceneId?: string) => {
       if (!sceneId) return [] as Array<{ deviceId: string; turnOn: boolean }>;
-      let customScenes: Array<{
-        id: string;
-        name: string;
-        actions: Array<{ deviceId: string; turnOn: boolean }>;
-      }> = [];
-      try {
-        customScenes = JSON.parse(localStorage.getItem("scenes") || "[]");
-      } catch {
-        customScenes = [];
-      }
-      const found = customScenes.find((s) => s.id === sceneId);
-      if (found && Array.isArray(found.actions) && found.actions.length) {
-        // For custom scenes, respect essential device setting
-        return found.actions.map(action => {
-          const device = devices.find(d => d.id === action.deviceId);
-          // If device is marked as essential, keep it on regardless of scene action
-          if (device?.essential && !action.turnOn) {
-            return { ...action, turnOn: true };
-          }
-          return action;
-        });
+      const custom = scenes.find((s) => s.id === sceneId);
+      if (custom) {
+        const list = Array.isArray((custom as { actions?: unknown }).actions)
+          ? ((custom as { actions: Array<{ deviceId: string; turnOn: boolean }> })
+              .actions)
+          : custom.targets;
+        if (Array.isArray(list)) {
+          return list.map((action) => {
+            const device = devices.find((d) => d.id === action.deviceId);
+            if (device?.essential && !action.turnOn) {
+              return { ...action, turnOn: true };
+            }
+            return action;
+          });
+        }
       }
       switch (sceneId) {
         case "away":
@@ -185,18 +264,21 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
           return devices.map((d) => ({ deviceId: d.id, turnOn: d.isOn }));
       }
     },
-    [devices, isEssential]
+    [devices, isEssential, scenes]
   );
 
-  useAutomationRunner({
+  useBudgetAlerts({
     devices,
-    homeId,
-    setDevices,
-    setAlerts,
-    computeSceneTargets,
+    tariff,
+    monthlyBudget,
+    touEnabled,
+    touPeakPrice,
+    touOffpeakPrice,
+    touOffpeakStart,
+    touOffpeakEnd,
   });
 
-  useBudgetAlerts({ devices, tariff });
+  useDeviceGuards({ devices, homeId, setDevices, setAlerts });
 
   const toggleDevice = useCallback(
     (deviceId: string) => {
@@ -268,6 +350,11 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const removeDevice = useCallback(
     (deviceId: string) => {
+      try {
+        void apiRemoveDevice(deviceId);
+      } catch (err) {
+        console.warn("Failed to remove device from backend", err);
+      }
       setDevices((prev) => prev.filter((d) => d.id !== deviceId));
       setPowerHistory((prev) => {
         const { [deviceId]: _removed, ...rest } = prev;
@@ -286,12 +373,28 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
       devices,
       alerts,
       powerHistory,
+      blockedDeviceIds,
       homeId,
       currency,
       tariff,
+      monthlyBudget,
+      touEnabled,
+      touPeakPrice,
+      touOffpeakPrice,
+      touOffpeakStart,
+      touOffpeakEnd,
+      alertTtlMinutes,
       setHomeId,
       setCurrency,
       setTariff,
+      setMonthlyBudget,
+      setTouEnabled,
+      setTouPeakPrice,
+      setTouOffpeakPrice,
+      setTouOffpeakStart,
+      setTouOffpeakEnd,
+      setAlertTtlMinutes,
+      setBlockedDeviceIds,
       toggleDevice,
       updateDevice,
       addDevice,
@@ -302,12 +405,28 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
       devices,
       alerts,
       powerHistory,
+      blockedDeviceIds,
       homeId,
       currency,
       tariff,
+      monthlyBudget,
+      touEnabled,
+      touPeakPrice,
+      touOffpeakPrice,
+      touOffpeakStart,
+      touOffpeakEnd,
+      alertTtlMinutes,
       setHomeId,
       setCurrency,
       setTariff,
+      setMonthlyBudget,
+      setTouEnabled,
+      setTouPeakPrice,
+      setTouOffpeakPrice,
+      setTouOffpeakStart,
+      setTouOffpeakEnd,
+      setAlertTtlMinutes,
+      setBlockedDeviceIds,
       toggleDevice,
       updateDevice,
       addDevice,
