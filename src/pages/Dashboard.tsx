@@ -8,6 +8,7 @@ import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { useNavigate } from "react-router-dom";
 import { getDailyStats } from "@/api/history";
+import type { Device } from "@/utils/energyContextTypes";
 
 export const Dashboard: React.FC = () => {
   const {
@@ -101,7 +102,7 @@ export const Dashboard: React.FC = () => {
   }, [devices, totalWatts]);
 
   // Calculate device runtime (simplified - shows time since last seen if on)
-  const getDeviceRuntime = useCallback((device: any) => {
+  const getDeviceRuntime = useCallback((device: Device) => {
     if (!device.isOn) {
       // Show that it's off
       return "off";

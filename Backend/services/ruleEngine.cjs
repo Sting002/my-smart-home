@@ -2,7 +2,7 @@
 const { db } = require('../db.cjs');
 const mqtt = require('mqtt');
 
-const BROKER_URL = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1884';
+const BROKER_URL = process.env.MQTT_BROKER_URL || process.env.VITE_MQTT_BROKER_URL || 'mqtt://localhost:1884';
 const EVAL_INTERVAL = parseInt(process.env.RULE_EVAL_INTERVAL_MS || '30000'); // 30 seconds
 const DAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 

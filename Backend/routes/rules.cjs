@@ -1,14 +1,15 @@
 // Backend/routes/rules.cjs
-const express = require('express');
-const { requireAuth } = require('../middleware/auth.cjs');
-const { db } = require('../db.cjs');
+const express = require("express");
+const { authenticate, requireAuth } = require("../middleware/auth.cjs");
+const { db } = require("../db.cjs");
 
 const router = express.Router();
+router.use(authenticate);
 
 // Get all rules for authenticated user
 router.get('/', requireAuth, (req, res) => {
-  const userId = req.user.id;
-  
+  const userId = req.user.sub || req.user.id;
+
   db.all(
     'SELECT * FROM rules WHERE user_id = ? ORDER BY created_at DESC',
     [userId],
@@ -34,7 +35,7 @@ router.get('/', requireAuth, (req, res) => {
 // Get single rule by ID
 router.get('/:id', requireAuth, (req, res) => {
   const { id } = req.params;
-  const userId = req.user.id;
+  const userId = req.user.sub || req.user.id;
   
   db.get(
     'SELECT * FROM rules WHERE id = ? AND user_id = ?',
@@ -64,7 +65,7 @@ router.get('/:id', requireAuth, (req, res) => {
 // Create or update rule
 router.post('/', requireAuth, (req, res) => {
   const { id, name, enabled, conditions, actions, homeId } = req.body;
-  const userId = req.user.id;
+  const userId = req.user.sub || req.user.id;
   
   // Validation
   if (!name || !conditions || !actions) {
@@ -105,7 +106,7 @@ router.post('/', requireAuth, (req, res) => {
 // Toggle rule enabled/disabled
 router.patch('/:id/toggle', requireAuth, (req, res) => {
   const { id } = req.params;
-  const userId = req.user.id;
+  const userId = req.user.sub || req.user.id;
   
   // First, get current state
   db.get(
@@ -144,7 +145,7 @@ router.patch('/:id/toggle', requireAuth, (req, res) => {
 // Delete rule
 router.delete('/:id', requireAuth, (req, res) => {
   const { id } = req.params;
-  const userId = req.user.id;
+  const userId = req.user.sub || req.user.id;
   
   db.run(
     'DELETE FROM rules WHERE id = ? AND user_id = ?',
@@ -168,7 +169,7 @@ router.delete('/:id', requireAuth, (req, res) => {
 // Bulk delete rules
 router.post('/bulk-delete', requireAuth, (req, res) => {
   const { ids } = req.body;
-  const userId = req.user.id;
+  const userId = req.user.sub || req.user.id;
   
   if (!Array.isArray(ids) || ids.length === 0) {
     return res.status(400).json({ error: 'ids array required' });

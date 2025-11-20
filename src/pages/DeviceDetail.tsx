@@ -7,17 +7,17 @@ import { toast } from "@/hooks/use-toast";
 import { removeDevice as apiRemoveDevice } from "@/api/devices";
 import { useAuth } from "@/contexts/AuthContext";
 import { getPowerHistory } from "@/api/history";
+import { toMillis } from "@/utils/time";
 
 export const DeviceDetail: React.FC = () => {
   const { deviceId } = useParams<{ deviceId: string }>();
-  const { devices, updateDevice, homeId, toggleDevice, removeDevice } = useEnergy();
+  const { devices, updateDevice, homeId, toggleDevice, removeDevice, powerHistory: powerHistoryMap } = useEnergy();
   const navigate = useNavigate();
   const device = devices.find(d => d.id === deviceId);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
-  const [powerHistory, setPowerHistory] = useState<PowerReading[]>([]);
-  const [saving, setSaving] = useState(false);
+  const [historicalHistory, setHistoricalHistory] = useState<PowerReading[]>([]);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({
     name: "",
@@ -32,49 +32,52 @@ export const DeviceDetail: React.FC = () => {
   // Fetch historical power data from backend on mount
   useEffect(() => {
     if (!deviceId) return;
-    
+    let cancelled = false;
     const fetchHistory = async () => {
       try {
         const now = Date.now();
-        const twoHoursAgo = now - (2 * 60 * 60 * 1000);
-        const history = await getPowerHistory(deviceId, { 
-          start: twoHoursAgo, 
+        const twoHoursAgo = now - 2 * 60 * 60 * 1000;
+        const history = await getPowerHistory(deviceId, {
+          start: twoHoursAgo,
           end: now,
-          limit: 120 
+          limit: 120,
         });
-        
+
+        if (cancelled) return;
         if (history && history.length > 0) {
-          const converted = history.map(h => ({
-            ts: h.timestamp,
+          const converted = history.map((h) => ({
+            ts: toMillis(h.timestamp, Date.now()),
             watts: h.watts,
             voltage: h.voltage,
-            current: h.current
+            current: h.current,
           }));
-          setPowerHistory(converted);
+          const limitedHistory = converted.slice(-120);
+          setHistoricalHistory(limitedHistory);
+
+          const latest = limitedHistory[limitedHistory.length - 1];
+          if (latest && deviceId) {
+            const ts = toMillis(latest.ts, Date.now());
+            const watts = Number(latest.watts ?? 0);
+            const recentEnough = Date.now() - ts < 10 * 60 * 1000;
+            if (recentEnough) {
+              updateDevice(deviceId, {
+                isOn: watts > 5,
+                watts,
+                lastSeen: ts,
+              });
+            }
+          }
         }
       } catch (error) {
         console.warn("Failed to fetch power history:", error);
       }
     };
-    
+
     fetchHistory();
-  }, [deviceId]);
-
-  useEffect(() => {
-    if (!device || !deviceId) return;
-
-    const callback = (data: PowerReading) => {
-      setPowerHistory(prev => {
-        const updated = [...prev, data].slice(-120);
-        return updated;
-      });
-    };
-
-    mqttService.subscribe(`home/${homeId}/sensor/${deviceId}/power`, callback);
     return () => {
-      mqttService.unsubscribe(`home/${homeId}/sensor/${deviceId}/power`, callback);
+      cancelled = true;
     };
-  }, [device, deviceId, homeId]);
+  }, [deviceId, updateDevice]);
 
   // Periodic check to update online status
   useEffect(() => {
@@ -103,36 +106,55 @@ export const DeviceDetail: React.FC = () => {
     return timeSinceLastSeen < 30_000 && timeSinceLastSeen >= 0;
   }, [device, onlineCheckTime]);
 
+  const liveHistory = useMemo(
+    () => (deviceId ? powerHistoryMap[deviceId] ?? [] : []),
+    [deviceId, powerHistoryMap]
+  );
+
+  const mergedHistory = useMemo(() => {
+    const merged = [...historicalHistory, ...liveHistory].map((reading) => {
+      const ts = toMillis((reading as { ts?: number | string }).ts, Date.now());
+      return { ...reading, ts };
+    });
+
+    const deduped = new Map<number, PowerReading>();
+    merged
+      .sort((a, b) => a.ts - b.ts)
+      .forEach((reading) => {
+        deduped.set(reading.ts, reading);
+      });
+
+    return Array.from(deduped.values()).slice(-120);
+  }, [historicalHistory, liveHistory]);
+
+  const latestReading = mergedHistory[mergedHistory.length - 1];
+
+  useEffect(() => {
+    if (!device || !latestReading) return;
+    const ts = toMillis(latestReading.ts, Date.now());
+    const watts = Number(latestReading.watts ?? 0);
+    const derivedOn = watts > 5;
+    const lastSeen = Number(device.lastSeen || 0);
+    const needsUpdate =
+      device.isOn !== derivedOn ||
+      device.watts !== watts ||
+      Math.abs(lastSeen - ts) > 500;
+
+    if (needsUpdate) {
+      updateDevice(device.id, { isOn: derivedOn, watts, lastSeen: ts });
+    }
+  }, [device, latestReading, updateDevice]);
+
   const chartData = useMemo(
     () =>
-      powerHistory.map(r => {
-        // Ensure timestamp is in milliseconds
-        const timestamp = r.ts > 10000000000 ? r.ts : r.ts * 1000;
-        const date = new Date(timestamp);
+      mergedHistory.map((r) => {
+        const date = new Date(toMillis(r.ts, Date.now()));
         return {
           time: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           watts: r.watts,
         };
       }),
-    [powerHistory]
-  );
-
-  const onChangeNum = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>, key: "thresholdW" | "autoOffMins") => {
-      if (!device) return;
-      setSaving(true);
-      const val = Number(e.target.value);
-      
-      // Update device with new value and trigger backend save
-      updateDevice(device.id, { [key]: val });
-      
-      // Also update the edit form to keep it in sync
-      setEditForm(prev => ({ ...prev, [key]: val }));
-      
-      const t = setTimeout(() => setSaving(false), 300);
-      return () => clearTimeout(t);
-    },
-    [device, updateDevice]
+    [mergedHistory]
   );
 
   const onEditChange = useCallback(
@@ -215,9 +237,9 @@ export const DeviceDetail: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <button onClick={() => navigate("/devices")} className="text-transparent flex items-center gap-2">
-        <span className="text-green-500">← Back</span>
-        ← Back
+      <button onClick={() => navigate("/devices")} className="text-green-500 flex items-center gap-2 font-semibold">
+        <span aria-hidden="true">&#60;</span>
+        Back
       </button>
 
       <div className="bg-gray-800 rounded-xl p-6">
@@ -356,35 +378,6 @@ export const DeviceDetail: React.FC = () => {
       </div>
 
       <div className="bg-gray-800 rounded-xl p-6">
-        <h2 className="text-white font-semibold mb-4">Settings</h2>
-        <div className="space-y-4">
-          <div>
-            <label htmlFor="thresholdW" className="text-gray-400 text-sm">Threshold (W)</label>
-            <input
-              id="thresholdW"
-              name="thresholdW"
-              type="number"
-              value={device.thresholdW}
-              onChange={(e) => onChangeNum(e, "thresholdW")}
-              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
-            />
-          </div>
-          <div>
-            <label htmlFor="autoOffMins" className="text-gray-400 text-sm">Auto-off (minutes)</label>
-            <input
-              id="autoOffMins"
-              name="autoOffMins"
-              type="number"
-              value={device.autoOffMins}
-              onChange={(e) => onChangeNum(e, "autoOffMins")}
-              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg mt-1"
-            />
-          </div>
-          {saving && <div className="text-xs text-gray-400">Saving…</div>}
-        </div>
-      </div>
-
-      <div className="bg-gray-800 rounded-xl p-6">
         <h2 className="text-white font-semibold mb-4">Danger Zone</h2>
         {isAdmin ? (
           <button
@@ -402,6 +395,3 @@ export const DeviceDetail: React.FC = () => {
     </div>
   );
 };
-
-
-

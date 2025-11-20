@@ -47,41 +47,41 @@ export interface CreateRuleRequest {
 }
 
 export async function getRules(): Promise<Rule[]> {
-  return apiClient('/api/rules');
+  return apiClient('/rules');
 }
 
 export async function getRule(id: string): Promise<Rule> {
-  return apiClient(`/api/rules/${id}`);
+  return apiClient(`/rules/${id}`);
 }
 
 export async function createRule(rule: CreateRuleRequest): Promise<{ ok: boolean; id: string }> {
-  return apiClient('/api/rules', {
+  return apiClient('/rules', {
     method: 'POST',
     body: JSON.stringify(rule),
   });
 }
 
 export async function updateRule(rule: CreateRuleRequest): Promise<{ ok: boolean; id: string }> {
-  return apiClient('/api/rules', {
+  return apiClient('/rules', {
     method: 'POST',
     body: JSON.stringify(rule),
   });
 }
 
 export async function toggleRule(id: string): Promise<{ ok: boolean; enabled: boolean }> {
-  return apiClient(`/api/rules/${id}/toggle`, {
+  return apiClient(`/rules/${id}/toggle`, {
     method: 'PATCH',
   });
 }
 
 export async function deleteRule(id: string): Promise<{ ok: boolean; deleted: number }> {
-  return apiClient(`/api/rules/${id}`, {
+  return apiClient(`/rules/${id}`, {
     method: 'DELETE',
   });
 }
 
 export async function bulkDeleteRules(ids: string[]): Promise<{ ok: boolean; deleted: number }> {
-  return apiClient('/api/rules/bulk-delete', {
+  return apiClient('/rules/bulk-delete', {
     method: 'POST',
     body: JSON.stringify({ ids }),
   });

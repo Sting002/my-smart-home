@@ -2,8 +2,8 @@
 const mqtt = require('mqtt');
 const { db } = require('../db.cjs');
 
-const BROKER_URL = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1884';
-const HOME_ID = process.env.HOME_ID || 'home1';
+const BROKER_URL = process.env.MQTT_BROKER_URL || process.env.VITE_MQTT_BROKER_URL || 'mqtt://localhost:1884';
+const HOME_ID = process.env.HOME_ID || process.env.VITE_DEFAULT_HOME_ID || 'home1';
 
 class MqttSubscriberService {
   constructor() {

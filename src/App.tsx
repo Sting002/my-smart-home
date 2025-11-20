@@ -31,8 +31,15 @@ const LoadingFallback = () => (
 );
 
 export default function App() {
+  const routerFutureFlags = {
+    // Opt into React Router v7 behaviors early to remove deprecation warnings
+    v7_startTransition: true,
+    v7_relativeSplatPath: true,
+    v7_prependBasename: true,
+  };
+
   return (
-    <BrowserRouter>
+    <BrowserRouter future={routerFutureFlags}>
       <AuthProvider>
         <Suspense fallback={<LoadingFallback />}>
           <Routes>

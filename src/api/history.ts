@@ -55,7 +55,7 @@ export async function getPowerHistory(
   if (options?.limit) params.append('limit', options.limit.toString());
 
   const query = params.toString() ? `?${params.toString()}` : '';
-  return apiClient(`/api/history/power/${deviceId}${query}`);
+  return apiClient(`/history/power/${deviceId}${query}`);
 }
 
 export async function getEnergyHistory(
@@ -68,7 +68,7 @@ export async function getEnergyHistory(
   if (options?.limit) params.append('limit', options.limit.toString());
 
   const query = params.toString() ? `?${params.toString()}` : '';
-  return apiClient(`/api/history/energy/${deviceId}${query}`);
+  return apiClient(`/history/energy/${deviceId}${query}`);
 }
 
 export async function getDailyStats(options?: {
@@ -82,7 +82,7 @@ export async function getDailyStats(options?: {
   if (options?.endDate) params.append('endDate', options.endDate);
 
   const query = params.toString() ? `?${params.toString()}` : '';
-  return apiClient(`/api/history/daily-stats${query}`);
+  return apiClient(`/history/daily-stats${query}`);
 }
 
 export async function getAlerts(options?: {
@@ -96,11 +96,11 @@ export async function getAlerts(options?: {
   if (options?.severity) params.append('severity', options.severity);
 
   const query = params.toString() ? `?${params.toString()}` : '';
-  return apiClient(`/api/history/alerts${query}`);
+  return apiClient(`/history/alerts${query}`);
 }
 
 export async function acknowledgeAlert(alertId: string): Promise<{ ok: boolean }> {
-  return apiClient(`/api/history/alerts/${alertId}/acknowledge`, {
+  return apiClient(`/history/alerts/${alertId}/acknowledge`, {
     method: 'PATCH',
   });
 }
@@ -113,5 +113,5 @@ export async function getPowerStats(
   if (options?.start) params.append('start', options.start.toString());
   if (options?.end) params.append('end', options.end.toString());
 
-  return apiClient(`/api/history/stats/power?${params.toString()}`);
+  return apiClient(`/history/stats/power?${params.toString()}`);
 }

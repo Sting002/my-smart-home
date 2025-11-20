@@ -26,6 +26,7 @@ import { useBudgetAlerts } from "@/hooks/useBudgetAlerts";
 import { useDeviceGuards } from "@/hooks/useDeviceGuards";
 import { getAlerts as fetchServerAlerts } from "@/api/history";
 import type { Device, EnergyContextType } from "@/utils/energyContextTypes";
+import { toMillis } from "@/utils/time";
 
 const EnergyContext = createContext<EnergyContextType | undefined>(undefined);
 
@@ -155,13 +156,19 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
       try {
         const serverDevices = await apiFetchDevices();
         if (Array.isArray(serverDevices) && serverDevices.length > 0) {
+          const normalizeDevice = (input: Device): Device => ({
+            ...input,
+            lastSeen: input.lastSeen ? toMillis(input.lastSeen, 0) : 0,
+          });
           const filtered = (serverDevices as Device[]).filter(
             (d) => !blockedDeviceIds.includes(d.id)
           );
           setDevices((prev) => {
-            const merged = filtered.map((server) => {
+            const merged = filtered.map((serverRaw) => {
+              const server = normalizeDevice(serverRaw);
               const existing = prev.find((d) => d.id === server.id);
               if (!existing) return server;
+              const existingLastSeen = toMillis(existing.lastSeen, 0);
               return {
                 ...server,
                 isOn: typeof existing.isOn === "boolean" ? existing.isOn : !!server.isOn,
@@ -177,7 +184,7 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
                     : typeof server.kwhToday === "number"
                     ? server.kwhToday
                     : 0,
-                lastSeen: existing.lastSeen ?? server.lastSeen ?? Date.now(),
+                lastSeen: existingLastSeen || server.lastSeen || 0,
               };
             });
             const leftovers = prev.filter(
@@ -319,13 +326,17 @@ export const EnergyProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const updateDevice = useCallback(
     (deviceId: string, updates: Partial<Device>) => {
+      const normalizedUpdates =
+        "lastSeen" in updates
+          ? { ...updates, lastSeen: toMillis((updates as { lastSeen?: number | string }).lastSeen, Date.now()) }
+          : updates;
       setDevices((prev) =>
-        prev.map((d) => (d.id === deviceId ? { ...d, ...updates } : d))
+        prev.map((d) => (d.id === deviceId ? { ...d, ...normalizedUpdates } : d))
       );
       try {
         const current = devices.find((d) => d.id === deviceId);
         if (current) {
-          const next: Device = { ...current, ...updates } as Device;
+          const next: Device = { ...current, ...normalizedUpdates } as Device;
           void apiUpsertDevice(next);
         }
       } catch {

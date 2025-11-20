@@ -4,6 +4,10 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+require("dotenv").config({
+  path: path.resolve(__dirname, "..", ".env.local"),
+  override: false,
+});
 const bodyParser = require("body-parser");
 const { cookieParser } = require("./middleware/auth.cjs");
 const { createHelmet, apiLimiter } = require("./middleware/security.cjs");
@@ -141,4 +145,3 @@ process.on('SIGINT', () => {
   
   process.exit(0);
 });
-

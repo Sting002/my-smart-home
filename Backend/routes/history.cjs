@@ -1,9 +1,10 @@
 // Backend/routes/history.cjs
-const express = require('express');
-const { requireAuth } = require('../middleware/auth.cjs');
-const { db } = require('../db.cjs');
+const express = require("express");
+const { authenticate, requireAuth } = require("../middleware/auth.cjs");
+const { db } = require("../db.cjs");
 
 const router = express.Router();
+router.use(authenticate);
 
 // Get power history for a device
 router.get('/power/:deviceId', requireAuth, (req, res) => {

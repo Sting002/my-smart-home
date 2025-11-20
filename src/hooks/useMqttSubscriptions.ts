@@ -1,13 +1,7 @@
 import { useEffect } from "react";
-import {
-  mqttService,
-  type MqttMessageContext,
-} from "@/services/mqttService";
-import type {
-  Alert,
-  Device,
-  PowerHistoryMap,
-} from "@/utils/energyContextTypes";
+import { mqttService, type MqttMessageContext } from "@/services/mqttService";
+import type { Alert, Device, PowerHistoryMap } from "@/utils/energyContextTypes";
+import { toMillis } from "@/utils/time";
 
 type Args = {
   enabled: boolean;
@@ -44,7 +38,8 @@ export function useMqttSubscriptions({
       if (!data || typeof (data as Record<string, unknown>).watts !== "number")
         return;
 
-      const reading = data as { ts?: number; watts: number };
+      const reading = data as { ts?: number | string; watts: number };
+      const ts = toMillis(reading.ts, Date.now());
       const deviceId = getDeviceId(topic);
       if (!deviceId || blockedDeviceIds.includes(deviceId)) return;
 
@@ -63,7 +58,7 @@ export function useMqttSubscriptions({
               kwhToday: 0,
               thresholdW: 1000,
               autoOffMins: 0,
-              lastSeen: reading.ts ?? Date.now(),
+              lastSeen: ts,
             },
           ];
         }
@@ -73,7 +68,7 @@ export function useMqttSubscriptions({
                 ...x,
                 watts: reading.watts,
                 isOn: reading.watts > 5,
-                lastSeen: reading.ts ?? Date.now(),
+                lastSeen: ts,
               }
             : x
         );
@@ -81,7 +76,7 @@ export function useMqttSubscriptions({
 
       setPowerHistory((prev) => {
         const list = prev[deviceId] ?? [];
-        const next = [...list, { ts: reading.ts ?? Date.now(), watts: reading.watts }];
+        const next = [...list, { ts, watts: reading.watts }];
         return { ...prev, [deviceId]: next.slice(-maxPoints) };
       });
     };

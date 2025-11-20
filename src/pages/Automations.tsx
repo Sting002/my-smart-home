@@ -17,6 +17,7 @@ type ScheduleDay =
 
 interface RuleDraft {
   id?: string;
+  name: string;
   deviceId: string;
   triggerType: TriggerType;
   thresholdW: number;
@@ -29,7 +30,7 @@ interface RuleDraft {
   enabled: boolean;
 }
 
-type ListRule = RuleDraft & { id: string };
+type ListRule = RuleDraft & { id: string; createdAt?: string };
 
 const DAY_ORDER: ScheduleDay[] = [
   "sunday",
@@ -50,7 +51,9 @@ const DAY_TO_INDEX: Record<ScheduleDay, number> = {
   saturday: 6,
 };
 
-const DEFAULT_DRAFT: RuleDraft = {
+const createDefaultDraft = (): RuleDraft => ({
+  id: undefined,
+  name: "Automation rule",
   deviceId: "",
   triggerType: "power",
   thresholdW: 1000,
@@ -61,14 +64,14 @@ const DEFAULT_DRAFT: RuleDraft = {
   scheduleTime: "22:00",
   action: "notify",
   enabled: true,
-};
+});
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
 const serializeRule = (draft: RuleDraft, homeId: string): CreateRuleRequest => {
   const base: CreateRuleRequest = {
     id: draft.id,
-    name: `Automation ${draft.deviceId}`,
+    name: draft.name.trim() || `Automation ${draft.deviceId || ""}`.trim() || "Automation",
     enabled: draft.enabled,
     homeId,
     conditions: [],
@@ -135,6 +138,7 @@ const deserializeRule = (rule: Rule): ListRule | null => {
 
   const draft: ListRule = {
     id: rule.id,
+    name: rule.name ?? "",
     deviceId: primaryCondition.deviceId ?? primaryAction.deviceId ?? "",
     triggerType: "power",
     thresholdW: 1000,
@@ -145,6 +149,7 @@ const deserializeRule = (rule: Rule): ListRule | null => {
     scheduleTime: "22:00",
     action: "notify",
     enabled: rule.enabled,
+    createdAt: rule.created_at,
   } as ListRule;
 
   if (primaryCondition.uiType === "time" || primaryCondition.mode === "exact") {
@@ -185,14 +190,20 @@ const deserializeRule = (rule: Rule): ListRule | null => {
 export const Automations: React.FC = () => {
   const { devices, homeId } = useEnergy();
   const [showBuilder, setShowBuilder] = useState(false);
-  const [draft, setDraft] = useState<RuleDraft>(DEFAULT_DRAFT);
+  const [draft, setDraft] = useState<RuleDraft>(createDefaultDraft);
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [filterDeviceId, setFilterDeviceId] = useState<string>("");
+  const [filterTriggerType, setFilterTriggerType] = useState<TriggerType | "">("");
+  const [showEnabledOnly, setShowEnabledOnly] = useState(false);
+  const [sortBy, setSortBy] = useState<"created" | "name">("created");
 
   const {
     rules: serverRules,
     loading,
     error,
     addRule: createRule,
+    editRule: updateRule,
     toggleRule: toggleRuleOnServer,
     removeRule: removeRuleOnServer,
   } = useServerRules();
@@ -201,8 +212,7 @@ export const Automations: React.FC = () => {
     () =>
       serverRules
         .map(deserializeRule)
-        .filter((r): r is ListRule => Boolean(r))
-        .slice(0, 50),
+        .filter((r): r is ListRule => Boolean(r)),
     [serverRules]
   );
 
@@ -233,6 +243,32 @@ export const Automations: React.FC = () => {
     }));
   }, []);
 
+  const visibleRules = useMemo(() => {
+    let list = rules;
+    if (filterDeviceId) {
+      list = list.filter((rule) => rule.deviceId === filterDeviceId);
+    }
+    if (filterTriggerType) {
+      list = list.filter((rule) => rule.triggerType === filterTriggerType);
+    }
+    if (showEnabledOnly) {
+      list = list.filter((rule) => rule.enabled);
+    }
+
+    const sorted = [...list].sort((a, b) => {
+      if (sortBy === "name") {
+        return (a.name || "").localeCompare(b.name || "", undefined, {
+          sensitivity: "base",
+        });
+      }
+      const aDate = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bDate - aDate;
+    });
+
+    return sorted.slice(0, 50);
+  }, [filterDeviceId, filterTriggerType, rules, showEnabledOnly, sortBy]);
+
   const validateDraft = useCallback(() => {
     const nextErrors: Record<string, string> = {};
     if (!draft.deviceId) nextErrors.deviceId = "Select a device";
@@ -241,7 +277,7 @@ export const Automations: React.FC = () => {
       if (!draft.thresholdW || draft.thresholdW < 1)
         nextErrors.thresholdW = "Enter a positive threshold";
       if (!draft.minutes || draft.minutes < 1)
-        nextErrors.minutes = "Enter minutes ≥ 1";
+        nextErrors.minutes = "Enter minutes >= 1";
     } else if (draft.triggerType === "time") {
       if (draft.timeHour < 0 || draft.timeHour > 23)
         nextErrors.timeHour = "Hour must be 0-23";
@@ -257,18 +293,48 @@ export const Automations: React.FC = () => {
     return Object.keys(nextErrors).length === 0;
   }, [draft]);
 
-  const handleCreateRule = useCallback(async () => {
+  const resetBuilder = useCallback(() => {
+    setErrors({});
+    setEditingRuleId(null);
+    setDraft(createDefaultDraft());
+  }, []);
+
+  const startEditing = useCallback((rule: ListRule) => {
+    setShowBuilder(true);
+    setErrors({});
+    setEditingRuleId(rule.id);
+    setDraft({
+      ...rule,
+      scheduleDays: [...rule.scheduleDays],
+    });
+  }, []);
+
+  const handleSaveRule = useCallback(async () => {
     if (!validateDraft()) return;
     try {
-      await createRule(serializeRule(draft, homeId));
+      const payload = serializeRule(
+        { ...draft, id: editingRuleId ?? draft.id },
+        homeId || "home1"
+      );
+
+      if (editingRuleId) {
+        await updateRule(payload);
+        toast({ title: "Rule updated", description: "Automation rule saved." });
+      } else {
+        await createRule(payload);
+        toast({ title: "Rule created", description: "Automation rule saved." });
+      }
+
       setShowBuilder(false);
-      setDraft(DEFAULT_DRAFT);
-      toast({ title: "Rule created", description: "Automation rule saved." });
+      resetBuilder();
     } catch (err) {
-      console.error("Failed to create rule", err);
-      toast({ title: "Failed to create rule", description: "Try again later." });
+      console.error("Failed to save rule", err);
+      toast({
+        title: editingRuleId ? "Failed to update rule" : "Failed to create rule",
+        description: "Try again later.",
+      });
     }
-  }, [createRule, draft, homeId, validateDraft]);
+  }, [createRule, draft, editingRuleId, homeId, resetBuilder, updateRule, validateDraft]);
 
   const removeRule = useCallback(
     async (id: string) => {
@@ -281,6 +347,18 @@ export const Automations: React.FC = () => {
       }
     },
     [removeRuleOnServer]
+  );
+
+  const confirmAndRemoveRule = useCallback(
+    async (id: string) => {
+      const target = rules.find((r) => r.id === id);
+      const confirmed = window.confirm(
+        `Delete automation "${target?.name || target?.deviceId || id}"?\nThis cannot be undone.`
+      );
+      if (!confirmed) return;
+      await removeRule(id);
+    },
+    [removeRule, rules]
   );
 
   const toggleRule = useCallback(
@@ -301,7 +379,7 @@ export const Automations: React.FC = () => {
   const getRuleDescription = useCallback(
     (rule: ListRule) => {
       const device = devices.find((d) => d.id === rule.deviceId);
-      const deviceName = device?.name ?? rule.deviceId;
+      const deviceName = device?.name || rule.deviceId || "Unknown device";
 
       let trigger = "";
       if (rule.triggerType === "power") {
@@ -309,7 +387,11 @@ export const Automations: React.FC = () => {
       } else if (rule.triggerType === "time") {
         trigger = `at ${pad(rule.timeHour)}:${pad(rule.timeMinute)} daily`;
       } else if (rule.triggerType === "schedule") {
-        trigger = `on ${rule.scheduleDays.join(", ")} at ${rule.scheduleTime}`;
+        const daysLabel = [...rule.scheduleDays]
+          .sort((a, b) => DAY_TO_INDEX[a] - DAY_TO_INDEX[b])
+          .map((day) => day.slice(0, 3).toUpperCase())
+          .join(", ");
+        trigger = `on ${daysLabel || "selected days"} at ${rule.scheduleTime}`;
       }
 
       const actionLabel =
@@ -324,6 +406,13 @@ export const Automations: React.FC = () => {
     [devices]
   );
 
+  const formatCreated = useCallback((value?: string) => {
+    if (!value) return "Created date unknown";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "Created date unknown";
+    return `Created ${date.toLocaleString()}`;
+  }, []);
+
   return (
     <div className="space-y-6">
       <div className="bg-gray-800 rounded-xl p-6">
@@ -335,17 +424,117 @@ export const Automations: React.FC = () => {
             </p>
           </div>
           <button
-            onClick={() => setShowBuilder((s) => !s)}
+            onClick={() => {
+              if (showBuilder) {
+                setShowBuilder(false);
+                resetBuilder();
+              } else {
+                resetBuilder();
+                setShowBuilder(true);
+              }
+            }}
             className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-semibold"
           >
-            {showBuilder ? "Cancel" : "New Rule"}
+            {showBuilder ? (editingRuleId ? "Cancel edit" : "Cancel") : "New Rule"}
           </button>
+        </div>
+        <div className="grid gap-3 md:grid-cols-4 sm:grid-cols-2 mb-4">
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">Filter by device</label>
+            <select
+              value={filterDeviceId}
+              onChange={(e) => setFilterDeviceId(e.target.value)}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"
+            >
+              <option value="">All devices</option>
+              {devices.map((device) => (
+                <option key={device.id} value={device.id}>
+                  {device.name} ({device.room})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">Trigger</label>
+            <select
+              value={filterTriggerType}
+              onChange={(e) => setFilterTriggerType(e.target.value as TriggerType | "")}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"
+            >
+              <option value="">All triggers</option>
+              <option value="power">Power</option>
+              <option value="time">Time</option>
+              <option value="schedule">Schedule</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              id="enabledOnly"
+              type="checkbox"
+              checked={showEnabledOnly}
+              onChange={(e) => setShowEnabledOnly(e.target.checked)}
+              className="h-4 w-4 accent-green-500"
+            />
+            <label htmlFor="enabledOnly" className="text-gray-300 text-sm">
+              Show enabled only
+            </label>
+          </div>
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">Sort</label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as "created" | "name")}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"
+            >
+              <option value="created">Newest first</option>
+              <option value="name">Name A-Z</option>
+            </select>
+          </div>
         </div>
 
         {showBuilder && (
           <div className="bg-gray-900 rounded-lg p-4 mb-4 border border-gray-700">
-            <h3 className="text-white font-semibold mb-3">Create Automation Rule</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-white font-semibold">
+                {editingRuleId ? "Edit Automation Rule" : "Create Automation Rule"}
+              </h3>
+              {editingRuleId && (
+                <span className="text-xs text-gray-400">Updating existing rule</span>
+              )}
+            </div>
             <div className="grid gap-4">
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-gray-400 text-sm font-medium block mb-2">
+                    Rule name
+                  </label>
+                  <input
+                    type="text"
+                    name="name"
+                    value={draft.name}
+                    onChange={onChange}
+                    placeholder="e.g. Turn off heater if above 2kW"
+                    className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg"
+                  />
+                </div>
+                <div className="flex items-center gap-3 pt-2">
+                  <label className="text-gray-400 text-sm font-medium" htmlFor="builder-enabled">
+                    Enabled
+                  </label>
+                  <input
+                    id="builder-enabled"
+                    type="checkbox"
+                    checked={draft.enabled}
+                    onChange={(e) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        enabled: e.target.checked,
+                      }))
+                    }
+                    className="h-5 w-5 accent-green-500"
+                  />
+                </div>
+              </div>
               <div>
                 <label htmlFor="deviceId" className="text-gray-400 text-sm font-medium block mb-2">
                   Device
@@ -502,17 +691,26 @@ export const Automations: React.FC = () => {
               </div>
 
               <button
-                onClick={handleCreateRule}
+                onClick={handleSaveRule}
                 className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-semibold"
               >
-                Save Rule
+                {editingRuleId ? "Update Rule" : "Save Rule"}
               </button>
+              {editingRuleId && (
+                <button
+                  type="button"
+                  onClick={resetBuilder}
+                  className="text-gray-400 hover:text-gray-200 text-sm font-semibold w-max"
+                >
+                  Reset form
+                </button>
+              )}
             </div>
           </div>
         )}
 
         {loading && !rules.length && (
-          <p className="text-gray-400 text-sm">Loading automations…</p>
+          <p className="text-gray-400 text-sm">Loading automations...</p>
         )}
 
         {error && (
@@ -524,9 +722,14 @@ export const Automations: React.FC = () => {
         {!loading && rules.length === 0 && !showBuilder && (
           <p className="text-gray-400 text-sm">No automations yet. Create your first rule.</p>
         )}
+        {!loading && rules.length > 0 && visibleRules.length === 0 && (
+          <p className="text-gray-400 text-sm">
+            No rules match the current filters. Try clearing filters.
+          </p>
+        )}
 
         <div className="space-y-3">
-          {rules.map((rule) => {
+          {visibleRules.map((rule) => {
             const description = getRuleDescription(rule);
             return (
               <div
@@ -546,8 +749,17 @@ export const Automations: React.FC = () => {
                         ? "Turn off device"
                         : "Turn on device"}
                     </p>
+                    <p className="text-gray-500 text-xs">
+                      {rule.enabled ? "Enabled" : "Disabled"} • {formatCreated(rule.createdAt)}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => startEditing(rule)}
+                      className="text-gray-300 hover:text-white text-xs font-semibold px-3 py-1 rounded border border-gray-700 hover:border-gray-600 transition-colors"
+                    >
+                      Edit
+                    </button>
                     <button
                       onClick={() => toggleRule(rule.id)}
                       className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
@@ -559,11 +771,11 @@ export const Automations: React.FC = () => {
                       {rule.enabled ? "ON" : "OFF"}
                     </button>
                     <button
-                      onClick={() => removeRule(rule.id)}
-                      className="text-gray-400 hover:text-red-400 px-2 py-1 transition-colors"
+                      onClick={() => confirmAndRemoveRule(rule.id)}
+                      className="text-gray-400 hover:text-red-400 px-2 py-1 transition-colors text-xs font-semibold"
                       aria-label="Delete rule"
                     >
-                      ✕
+                      Delete
                     </button>
                   </div>
                 </div>

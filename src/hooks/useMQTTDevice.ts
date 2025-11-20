@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { mqttService, PowerReading, EnergyReading } from "../services/mqttService";
 import { useEnergy } from "../contexts/EnergyContext";
+import { toMillis } from "@/utils/time";
 
 export const useMQTTDevice = (deviceId: string) => {
   const { homeId, updateDevice, addDevice, devices } = useEnergy();
@@ -24,13 +25,13 @@ export const useMQTTDevice = (deviceId: string) => {
           kwhToday: 0,
           thresholdW: 1000,
           autoOffMins: 0,
-          lastSeen: data.ts,
+          lastSeen: toMillis(data.ts, Date.now()),
         });
       } else {
         updateDevice(deviceId, {
           watts: data.watts,
           isOn: data.watts > 5,
-          lastSeen: data.ts,
+          lastSeen: toMillis(data.ts, Date.now()),
         });
       }
     };
